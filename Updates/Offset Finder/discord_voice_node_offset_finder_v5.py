@@ -20,57 +20,138 @@ try:
 except ImportError:
     VIZ_AVAILABLE = False
 
-VERSION = "5.1.9"
+VERSION = "5.6.0"
 
-TARGET_BITRATE_BPS = 384000
+TARGET_BITRATE_BPS = 248000
 _BITRATE_LE = TARGET_BITRATE_BPS.to_bytes(4, "little")
 BITRATE_PATCH_3 = " ".join(f"{b:02X}" for b in _BITRATE_LE[:3])
 BITRATE_PATCH_4 = " ".join(f"{b:02X}" for b in _BITRATE_LE)
 BITRATE_PATCH_5 = BITRATE_PATCH_4 + " 00"
+MAX510K_LE = (510720).to_bytes(4, "little")
+FLAT_EBP248K_PATCH = "BD C0 C8 03 00 90"
+FLAT_R8D248K_PATCH = "41 B8 C0 C8 03 00 90"
 
 DERIVATIONS = {
-    "CodecProbe_ForceSuccessBranch": [
-        ("CodecProbe_ChannelCountPatch", 0xC),
-        ("CodecProbe_ChannelCountPatch", 0x1),
+    "CommitAudioCodec_SuccessBranch_Jmp": [
+        ("CommitAudioCodec_ChannelCount_Imm02", 0xC),
+        ("CommitAudioCodec_ChannelCount_Imm02", 0x1),
     ],
-    "SampleRate_Select48kNop": [
-        ("CodecProbe_ChannelCountPatch", 0x168),
+    "SelectSampleRate_Cmov48k_Nop3": [
+        ("CommitAudioCodec_ChannelCount_Imm02", 0x168),
     ],
-    "OpusBitrate_Imul384k": [
-        ("CodecProbe_ChannelCountPatch", 0x45F),
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k": [
+        ("CommitAudioCodec_ChannelCount_Imm02", 0x42B),
     ],
-    "WebRtcHighpass_Trampoline": [
-        ("CodecProbe_ChannelCountPatch", 0xC275),
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k": [
+        ("ApplySettings_BitrateCalcLow_Channels_Mov248k", 0x1D),
     ],
-    "AudioEncoder_BitrateOrMaskNop": [
-        ("AudioEncoder_BitrateMovImm", 0x8),
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k": [
+        ("ApplySettings_BitrateCalcLow_Channels_Mov248k", 0x32),
     ],
-    "OpusEncoderConfig_IsOkRetTrue": [
-        ("OpusEncoderConfig_SetStereoChannels", 0x29C),
-        ("OpusEncoderConfig_SetStereoChannels", 0x19B),
-        ("OpusEncoderConfig_SetStereoChannels", 0x30B),
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp": [
+        ("ApplySettings_BitrateCalcLow_Channels_Mov248k", 0x10A),
     ],
-    "WebRtcDcReject_Injected": [
-        ("WebRtcHighpassCutoff_Injected", 0x1E0),
-        ("WebRtcHighpassCutoff_Injected", 0x1B0),
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov": [
+        ("ApplySettings_MaxAvgBitrateClamp248k_Cmp", 0x6),
     ],
-    "OpusEncoderConfig_CtorBitrate_A": [
-        ("OpusEncoderConfig_SetStereoChannels", 0xA),
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k": [
+        ("RecreateEncoderInstance_FecBranch_Jmp", 0x3FF5),
+        ("ApplySettings_BitrateCalcLow_Channels_Mov248k", 0x4EE6),
     ],
-    "OpusEncoderConfig_CtorUseInbandFecOn": [
-        ("OpusEncoderConfig_CtorBitrate_A", 0x27),
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k": [
+        ("RecreateEncoder_BitrateCalcLow_Channels_Mov248k", 0x1D),
+    ],
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k": [
+        ("RecreateEncoder_BitrateCalcLow_Channels_Mov248k", 0x32),
+    ],
+    "SetBitrateClamp_Max248k_Cmp": [
+        ("RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xD8),
+        ("RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xBE),
+    ],
+    "SetBitrateClamp_Max248k_Mov": [
+        ("SetBitrateClamp_Max248k_Cmp", 0x6),
+    ],
+    "GetMultipliedBitrate_Entry_IdentityRet": [
+        ("GetMultipliedBitrate_Mulss_Nop7", -0x3D),
+    ],
+    "SetTargetBitrate_Mulss_Nop6": [
+        ("SetBitrate_Imm64_Imm248k", 0x40),
+    ],
+    "SetTargetBitrate_ClampMax248k_Cmp": [
+        ("SetBitrate_Imm64_Imm248k", -0x3C),
+        ("SetTargetBitrate_Mulss_Nop6", -0x7C),
+    ],
+    "SetTargetBitrate_ClampMax248k_Mov": [
+        ("SetTargetBitrate_ClampMax248k_Cmp", 0x6),
+        ("SetTargetBitrate_Mulss_Nop6", -0x76),
+    ],
+    "EncoderOpusImpl_RelayClamp248k_Cmp": [
+        ("SetTargetBitrate_Mulss_Nop6", 0x2FB),
+    ],
+    "EncoderOpusImpl_RelayClamp248k_Mov": [
+        ("EncoderOpusImpl_RelayClamp248k_Cmp", 0x5),
+    ],
+    "WebRtcSplHighPass_Dispatch_MovRet": [
+        ("CommitAudioCodec_ChannelCount_Imm02", 0xC275),
+    ],
+    "SetBitrate_OrMask_Nop3": [
+        ("SetBitrate_Imm64_Imm248k", 0x8),
+    ],
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": [
+        ("AudioEncoderOpusConfig_Ctor_Channels_Imm02", 0x29C),
+        ("AudioEncoderOpusConfig_Ctor_Channels_Imm02", 0x19B),
+        ("AudioEncoderOpusConfig_Ctor_Channels_Imm02", 0x30B),
+    ],
+    "dc_reject_Callback_InjectShellcode": [
+        ("hp_cutoff_Callback_InjectShellcode", 0x1E0),
+        ("hp_cutoff_Callback_InjectShellcode", 0x1B0),
+    ],
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k": [
+        ("AudioEncoderOpusConfig_Ctor_Channels_Imm02", 0xA),
+    ],
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10": [
+        ("AudioEncoderOpusConfig_Ctor_Channels_Imm02", -0xF),
+    ],
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio": [
+        ("AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k", 0xB),
+    ],
+    "RecreateEncoderInstance_DtxBranch_Jmp": [
+        ("RecreateEncoderInstance_FecBranch_Jmp", 0xCD),
+    ],
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp": [
+        ("MultiChannelRecreateEncoder_FecBranch_Jmp", 0x181),
+    ],
+    "SetDtx_EnableBranch_Jmp": [
+        ("SetFec_EnableBranch_Jmp", 0xB0),
+    ],
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear": [
+        ("SetFec_EnableBranch_Jmp", 0x91A9),
+    ],
+    "RecreateEncoderInstance_FecBranch_Jmp": [
+        ("SetTargetBitrate_Mulss_Nop6", -0x1B8E),
+    ],
+    "SetFec_EnableBranch_Jmp": [
+        ("SetTargetBitrate_Mulss_Nop6", -0x135F),
     ],
 }
 
 _PHASE2_SKIP_CLANG = frozenset({
-    "OpusBitrate_Imul384k",
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k",
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k",
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
 })
 
 SLIDING_WINDOW_DEFAULT = 128
 SLIDING_WINDOW_OVERRIDES = {
-    "CodecProbe_ForceSuccessBranch": 48,
-    "OpusEncoderConfig_CtorBitrate_A": 48,
-    "OpusBitrate_Imul384k": 0x1000,
+    "CommitAudioCodec_SuccessBranch_Jmp": 48,
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k": 48,
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k": 0x1000,
 }
 
 class Signature:
@@ -143,7 +224,7 @@ def has_nearby_stereo_setter(data, file_offset, window=120):
 
 SIGNATURES = [
     Signature(
-        name="CodecProbe_ChannelCountPatch",
+        name="CommitAudioCodec_ChannelCount_Imm02",
         pattern_hex="E8 ?? ?? ?? ?? BD ?? 00 00 00 80 BC 24 80 01 00 00 01",
         target_offset=6,
         description="Stereo channel count: call <rel>; mov ebp, CHANNELS; cmp byte [rsp+0x180], 1",
@@ -156,7 +237,7 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="OpusEncoderConfig_SetStereoChannels",
+        name="AudioEncoderOpusConfig_Ctor_Channels_Imm02",
         pattern_hex="48 B9 14 00 00 00 80 BB 00 00 48 89 08 48 C7 40 08 ?? 00 00 00",
         target_offset=17,
         description="Opus config: mov rcx, {48000<<32|20}; mov [rax],rcx; mov qword [rax+8], CHANNELS",
@@ -169,7 +250,7 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="DownmixMono_BypassBranch",
+        name="CapturedAudioProcessor_MonoDownmix_NopJmp",
         pattern_hex="48 89 F9 E8 ?? ?? ?? ?? 84 C0 74 0D 83 BE ?? ?? 00 00 09 0F 8F",
         target_offset=8,
         description="Mono downmix gate: mov rcx,rdi; call; test al,al; jz +0xD; cmp [rsi+??], 9; jg",
@@ -185,7 +266,7 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="AudioEncoder_BitrateMovImm",
+        name="SetBitrate_Imm64_Imm248k",
         pattern_hex="89 F8 48 B9 ?? ?? ?? ?? 01 00 00 00 48 09 C1 48 89 4E 1C",
         target_offset=4,
         description="Bitrate setter: mov eax,edi; mov rcx,imm64; or rcx,rax; mov [rsi+0x1C],rcx",
@@ -197,7 +278,48 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="AudioEncoderCodec_ThrowNoOp",
+        name="SetTargetBitrate_Mulss_Nop6",
+        pattern_hex="F3 0F 2A C7 F3 0F 59 44 81 EC",
+        target_offset=4,
+        description="SetTargetBitrate: cvtsi2ss xmm0,edi; mulss xmm0,[rcx+rax*4-14h] (actual encode rate scale)",
+        expected_original="F3 0F 59 44 81 EC",
+        patch_bytes="90 90 90 90 90 90",
+        patch_len=6,
+        alt_patterns=[
+            ("F3 0F 59 44 81 EC", 0),
+        ],
+    ),
+
+    Signature(
+        name="GetMultipliedBitrate_Mulss_Nop7",
+        pattern_hex="F3 0F 2A C0 F3 41 0F 59 44 88 EC",
+        target_offset=4,
+        description="GetMultipliedBitrate (PE): cvtsi2ss xmm0,eax; mulss xmm0,[r8+rcx*4-14h]",
+        expected_original="F3 41 0F 59 44 88 EC",
+        patch_bytes="90 90 90 90 90 90 90",
+        patch_len=7,
+        alt_patterns=[
+            ("F3 0F 2A C7 F3 0F 59 44 81 EC", 5),
+            ("F3 0F 59 44 81 EC", 0),
+            ("F3 41 0F 59 44 88 EC", 0),
+        ],
+    ),
+
+    Signature(
+        name="GetMultipliedBitrate_Entry_IdentityRet",
+        pattern_hex="89 C8 48 63 C9 48 69 C9 ?? ?? ?? ??",
+        target_offset=0,
+        description="GetMultipliedBitrate entry: mov eax,ecx; movsxd rcx,eax; imul rcx,rdx,...",
+        expected_original="89 C8",
+        patch_bytes="8B C1 C3",
+        patch_len=3,
+        alt_patterns=[
+            ("8B C1 48 63 C9", 0),
+        ],
+    ),
+
+    Signature(
+        name="CodecMismatchThrow_Entry_Ret",
         pattern_hex="56 56 57 53 48 81 EC C8 00 00 00 0F 29 B4 24 B0 00 00 00 4C 89 CE 4C 89 C7 89 D3",
         target_offset=-1,
         description="Error handler: push rsi;rdi;rbx; sub rsp,0xC8; movaps [rsp+0xB0],xmm6; ...",
@@ -209,7 +331,7 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="ChannelDownmix_RetStub",
+        name="ChannelDownmix_Entry_Ret",
         pattern_hex="57 41 56 41 55 41 54 56 57 55 53 48 83 EC 10 48 89 0C 24 45 85 C0",
         target_offset=-1,
         description="Downmix function: push r15..r12,rsi,rdi,rbp,rbx; sub rsp,0x10; ...",
@@ -222,7 +344,7 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="AudioFrame_StereoChannelAssign",
+        name="CreateAudioFrame_ChannelAssign_Mov",
         pattern_hex="B8 80 BB 00 00 BD 00 7D 00 00 0F 43 E8",
         target_offset=31,
         description="Audio frame: mov eax,48000; mov ebp,32000; cmovae ebp,eax; ... second cmov",
@@ -234,7 +356,7 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="WebRtcHighpassCutoff_Injected",
+        name="hp_cutoff_Callback_InjectShellcode",
         pattern_hex="56 48 83 EC 30 44 0F 29 44 24 20 0F 29 7C 24 10 0F 29 34 24",
         target_offset=0,
         description="HP cutoff filter: push rsi; sub rsp,0x30; SSE saves (xmm8,xmm7,xmm6)",
@@ -246,7 +368,7 @@ SIGNATURES = [
         ],
     ),
     Signature(
-        name="OpusEncoderConfig_CtorBitrate_B",
+        name="AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
         pattern_hex="48 B9 ?? ?? ?? ?? ?? ?? ?? ?? 48 89 48 10 66 C7 40 18 00 00 C6 40 1A 00",
         target_offset=6,
         description="Encoder config constructor 2: mov rcx,packed_qword; mov [rax+0x10],rcx; ...",
@@ -257,52 +379,161 @@ SIGNATURES = [
             ("48 B9 ?? ?? ?? ?? ?? ?? ?? ?? 48 89 48 ?? 66 C7 40 ?? 00 00 C6 40 ?? 00", 6),
         ],
     ),
+
+    Signature(
+        name="RecreateEncoderInstance_FecBranch_Jmp",
+        pattern_hex="41 80 BE 1C 01 00 00 00 75",
+        target_offset=8,
+        description="RecreateEncoderInstance: cmp [r14+1Ch],1; jnz EnableFec -> jmp DisableFec",
+        expected_original="75",
+        patch_bytes="EB",
+        patch_len=1,
+        alt_patterns=[
+            ("80 79 1C 01 75", 4),
+            ("41 80 BC 1C 01 00 00 00 75", 8),
+            ("41 80 7C 24 1C 01 75", 6),
+        ],
+    ),
+
+    Signature(
+        name="MultiChannelRecreateEncoder_FecBranch_Jmp",
+        pattern_hex="41 80 BF 18 01 00 00 00 75",
+        target_offset=8,
+        description="MultiChannel RecreateEncoderInstance: cmp [r15+18h],1; jnz -> jmp",
+        expected_original="75",
+        patch_bytes="EB",
+        patch_len=1,
+        alt_patterns=[
+            ("41 80 BD 18 01 00 00 00 75", 8),
+            ("41 80 7D 18 01 75", 5),
+        ],
+    ),
+
+    Signature(
+        name="SetFec_EnableBranch_Jmp",
+        pattern_hex="48 8B 89 A8 00 00 00 84 D2 74",
+        target_offset=9,
+        description="AudioEncoderOpusImpl::SetFec: test dl,dl; jz EnableFec -> jmp DisableFec",
+        expected_original="74",
+        patch_bytes="EB",
+        patch_len=1,
+        alt_patterns=[
+            ("48 8B BF A8 00 00 00 85 F6 74", 9),
+        ],
+    ),
+
+    Signature(
+        name="RecreateEncoderInstance_DtxBranch_Jmp",
+        pattern_hex="80 7E 34 01 75",
+        target_offset=4,
+        description="RecreateEncoderInstance: cmp byte [rsi+34h],1; jnz EnableDtx -> jmp",
+        expected_original="75",
+        patch_bytes="EB",
+        patch_len=1,
+        alt_patterns=[
+            ("41 80 BE 34 01 00 00 00 75", 8),
+            ("80 79 34 01 75", 4),
+        ],
+    ),
+
+    Signature(
+        name="MultiChannelRecreateEncoder_DtxBranch_Jmp",
+        pattern_hex="41 80 BF 34 01 00 00 00 75",
+        target_offset=8,
+        description="MultiChannel RecreateEncoderInstance: cmp [r15+34h],1; jnz -> jmp",
+        expected_original="75",
+        patch_bytes="EB",
+        patch_len=1,
+    ),
+
+    Signature(
+        name="SetDtx_EnableBranch_Jmp",
+        pattern_hex="48 8B 89 A8 00 00 00 84 D2 74",
+        target_offset=9,
+        description="AudioEncoderOpusImpl::SetDtx: test dl,dl; jz -> jmp",
+        expected_original="74",
+        patch_bytes="EB",
+        patch_len=1,
+    ),
+
+    Signature(
+        name="AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
+        pattern_hex="48 B9 14 00 00 00 80 BB 00 00 48 89 08 48 C7 40 08",
+        target_offset=2,
+        description="Opus config ctor: mov rcx,{48000|20ms}; frame_size_ms imm 20->10",
+        expected_original="14",
+        patch_bytes="0A",
+        patch_len=1,
+    ),
+
+    Signature(
+        name="AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
+        pattern_hex="C6 40 18 01 66 C7 40 1C 00 00",
+        target_offset=3,
+        description="Opus config ctor: mov byte [rax+18h],application; force kAudio=1",
+        expected_original="01",
+        patch_bytes="01",
+        patch_len=1,
+        alt_patterns=[
+            ("C6 40 18 00 66 C7 40 1C 00 00", 3),
+        ],
+    ),
+
+    Signature(
+        name="CopyRedEncodeImpl_RedundantCopy_JmpNear",
+        pattern_hex="48 8B 09 48 85 C9 0F 84",
+        target_offset=7,
+        description="AudioEncoderCopyRed::EncodeImpl: test rcx,rcx; jz skip RED -> jmp near",
+        expected_original="0F 84",
+        patch_bytes="E9",
+        patch_len=2,
+    ),
 ]
 
 CLANG_ALT_PATTERNS = [
-    ("CodecProbe_ChannelCountPatch",
+    ("CommitAudioCodec_ChannelCount_Imm02",
      "E8 ?? ?? ?? ?? BF ?? 00 00 00 80 ?? 24 ?? ?? 00 00 01", 6),
-    ("CodecProbe_ChannelCountPatch",
+    ("CommitAudioCodec_ChannelCount_Imm02",
      "?? ?? 00 00 00 80 ?? 24 ?? ?? 00 00 01", 1),
-    ("OpusEncoderConfig_SetStereoChannels",
+    ("AudioEncoderOpusConfig_Ctor_Channels_Imm02",
      "48 B8 14 00 00 00 80 BB 00 00 48 89 ?? 48 C7 ?? ?? ?? 00 00 00", 17),
-    ("OpusEncoderConfig_SetStereoChannels",
+    ("AudioEncoderOpusConfig_Ctor_Channels_Imm02",
      "48 ?? 14 00 00 00 80 BB 00 00 48 89 ?? ?? 48 C7 ?? ?? ?? 00 00 00", 18),
-    ("DownmixMono_BypassBranch",
+    ("CapturedAudioProcessor_MonoDownmix_NopJmp",
      "48 89 FF E8 ?? ?? ?? ?? 84 C0 74 ?? 83 ?? ?? ?? 00 00 09 0F 8F", 8),
-    ("DownmixMono_BypassBranch",
+    ("CapturedAudioProcessor_MonoDownmix_NopJmp",
      "F3 0F 1E FA ?? 89 ?? E8 ?? ?? ?? ?? 84 C0 74 ?? 83 ?? ?? ?? 00 00 09 0F 8F", 12),
-    ("DownmixMono_BypassBranch",
+    ("CapturedAudioProcessor_MonoDownmix_NopJmp",
      "4C 89 ?? E8 ?? ?? ?? ?? 84 C0 74 ?? 83 7B ?? 09 0F 8F", 8),
-    ("DownmixMono_BypassBranch",
+    ("CapturedAudioProcessor_MonoDownmix_NopJmp",
      "4C 89 ?? E8 ?? ?? ?? ?? 84 C0 74 ?? 83 7B ?? 09 7F", 8),
-    ("AudioEncoder_BitrateMovImm",
+    ("SetBitrate_Imm64_Imm248k",
      "89 F8 48 ?? ?? ?? ?? ?? 01 00 00 00 48 09 ?? 48 89 ?? ??", 4),
-    ("AudioEncoder_BitrateMovImm",
+    ("SetBitrate_Imm64_Imm248k",
      "89 ?? 48 B8 ?? ?? ?? ?? 01 00 00 00 48 09 ?? 48 89 ?? ??", 4),
-    ("AudioEncoderCodec_ThrowNoOp",
+    ("CodecMismatchThrow_Entry_Ret",
      "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 ?? EC ?? ?? 00 00", -1),
-    ("AudioEncoderCodec_ThrowNoOp",
+    ("CodecMismatchThrow_Entry_Ret",
      "F3 0F 1E FA 55 48 89 E5 41 57 41 56 41 55 41 54 53", 3),
-    ("ChannelDownmix_RetStub",
+    ("ChannelDownmix_Entry_Ret",
      "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ?? 45 85 C0", -1),
-    ("ChannelDownmix_RetStub",
+    ("ChannelDownmix_Entry_Ret",
      "F3 0F 1E FA 55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ??", 3),
-    ("ChannelDownmix_RetStub",
+    ("ChannelDownmix_Entry_Ret",
      "41 57 41 56 41 55 41 54 55 53 48 83 EC ?? 49 89 ?? 45 85 ??", -1),
-    ("AudioFrame_StereoChannelAssign",
+    ("CreateAudioFrame_ChannelAssign_Mov",
      "B8 80 BB 00 00 ?? ?? 00 7D 00 00 0F ?? ??", 31),
-    ("WebRtcHighpassCutoff_Injected",
+    ("hp_cutoff_Callback_InjectShellcode",
      "55 48 89 E5 ?? ?? EC ?? 0F 29 ?? ?? ?? 0F 29 ?? ?? ?? 0F 29", 0),
-    ("WebRtcHighpassCutoff_Injected",
+    ("hp_cutoff_Callback_InjectShellcode",
      "F3 0F 1E FA 56 48 83 EC ?? ?? 0F 29 ?? ?? ?? 0F 29 ?? ?? ?? 0F 29", 4),
-    ("OpusEncoderConfig_CtorBitrate_B",
+    ("AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
      "48 ?? ?? ?? ?? ?? ?? ?? ?? ?? 48 89 ?? ?? 66 C7 ?? ?? 00 00 C6 ?? ?? 00", 6),
-    ("AudioEncoder_BitrateMovImm",
+    ("SetBitrate_Imm64_Imm248k",
      "89 ?? 48 B9 00 00 00 00 01 00 00 00 48 09 C1", 4),
-    ("AudioFrame_StereoChannelAssign",
+    ("CreateAudioFrame_ChannelAssign_Mov",
      "B8 80 BB 00 00 41 BD 00 7D 00 00 44 0F 43 E8", 31),
-    ("AudioFrame_StereoChannelAssign",
+    ("CreateAudioFrame_ChannelAssign_Mov",
      "B8 80 BB 00 00 41 ?? 00 7D 00 00 ?? 0F 43 ??", 31),
 ]
 
@@ -380,42 +611,42 @@ def parse_pe(data):
 # region ELF Parser
 ELF_SYMBOL_MAP = {
 
-    "AudioEncoderCodec_ThrowNoOp": {
+    "CodecMismatchThrow_Entry_Ret": {
         "patterns": ["Environment5ThrowIJPKcEE", "Environment5Throw", "throw_error"],
         "at_start": True,
         "prefer_smallest": True,
     },
-    "ChannelDownmix_RetStub": {
+    "ChannelDownmix_Entry_Ret": {
         "patterns": ["downmix_and_resample"],
         "at_start": True,
     },
-    "WebRtcHighpassCutoff_Injected": {
+    "hp_cutoff_Callback_InjectShellcode": {
         "patterns": ["hp_cutoff"],
         "at_start": True,
     },
-    "WebRtcDcReject_Injected": {
+    "dc_reject_Callback_InjectShellcode": {
         "patterns": ["dc_reject"],
         "at_start": True,
     },
-    "WebRtcHighpass_Trampoline": {
+    "WebRtcSplHighPass_Dispatch_MovRet": {
         "patterns": ["InitializeHighPassFilter"],
         "at_start": True,
     },
 
 
-    "CodecProbe_ChannelCountPatch": {
+    "CommitAudioCodec_ChannelCount_Imm02": {
         "patterns": ["LocalUser16CommitAudioCodecEv",
                      "LocalUser13ApplySettings"],
         "at_start": False,
         "linux_scan": "stereo_cmp_byte",
         "prefer_largest": True,
     },
-    "AudioFrame_StereoChannelAssign": {
+    "CreateAudioFrame_ChannelAssign_Mov": {
         "patterns": ["CreateAudioFrameToProcess", "CreateAudioFrame"],
         "at_start": False,
         "linux_scan": "channel_cmov",
     },
-    "OpusEncoderConfig_SetStereoChannels": {
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev",
                      "OpusConfigC1", "OpusConfigC2"],
         "at_start": False,
@@ -431,31 +662,59 @@ ELF_SYMBOL_MAP = {
         "at_start": False,
         "linux_scan": "multichannel_opus_config_channels",
     },
-    "AudioEncoder_BitrateMovImm": {
+    "SetBitrate_Imm64_Imm248k": {
         "patterns": ["WebrtcAdmHelper22EnsureRecordingStarted",
                      "WebrtcAdmHelper20EnsurePlayoutStarted"],
         "exclude_patterns": ["__function", "__policy"],
         "at_start": False,
         "linux_scan": "bitrate_movabs_or",
     },
-    "OpusEncoderConfig_CtorBitrate_B": {
+    "SetTargetBitrate_Mulss_Nop6": {
+        "patterns": ["AudioEncoderOpusImpl16SetTargetBitrateEi",
+                     "SetTargetBitrate"],
+        "at_start": False,
+        "linux_scan": "set_target_bitrate_mulss",
+    },
+    "GetMultipliedBitrate_Mulss_Nop7": {
+        "patterns": ["GetMultipliedBitrateEiRKNSt4__Cr6vectorIfNS",
+                     "GetMultipliedBitrate"],
+        "at_start": False,
+        "linux_scan": "get_multiplied_bitrate_mulss",
+    },
+    "RecreateEncoderInstance_FecBranch_Jmp": {
+        "patterns": ["AudioEncoderOpusImpl22RecreateEncoderInstanceEv",
+                     "RecreateEncoderInstance"],
+        "at_start": False,
+        "linux_scan": "fec_recreate_jnz",
+    },
+    "MultiChannelRecreateEncoder_FecBranch_Jmp": {
+        "patterns": ["AudioEncoderMultiChannelOpusImpl22RecreateEncoderInstanceEv"],
+        "at_start": False,
+        "linux_scan": "fec_multichannel_jnz",
+    },
+    "SetFec_EnableBranch_Jmp": {
+        "patterns": ["AudioEncoderOpusImpl6SetFecEb", "SetFecEb"],
+        "at_start": False,
+        "linux_scan": "fec_set_jz",
+    },
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev"],
         "at_start": False,
         "linux_scan": "opus_config_bitrate",
     },
-    "DownmixMono_BypassBranch": {
+    "CapturedAudioProcessor_MonoDownmix_NopJmp": {
         "patterns": ["CapturedAudioProcessor7Process"],
         "at_start": False,
         "linux_scan": "mono_downmix_test",
     },
-    "CodecProbe_ForceSuccessBranch": {
+    "CommitAudioCodec_SuccessBranch_Jmp": {
         "patterns": ["LocalUser16CommitAudioCodecEv",
                      "LocalUser13ApplySettings"],
         "at_start": False,
         "linux_scan": "stereo_success2_byte",
         "prefer_largest": True,
     },
-    "SampleRate_Select48kNop": {
+    "SelectSampleRate_Cmov48k_Nop3": {
         "patterns": ["LocalUser16CommitAudioCodecEv",
                      "LocalUser13ApplySettings"],
         "at_start": False,
@@ -475,91 +734,91 @@ _ARM64_RET         = 0xD65F03C0
 
 
 ARM64_SYMBOL_MAP = {
-    "AudioEncoderCodec_ThrowNoOp": {
+    "CodecMismatchThrow_Entry_Ret": {
         "patterns": ["Environment5ThrowIJPKcEE", "Environment5Throw", "throw_error"],
         "at_start": True,
         "prefer_smallest": True,
     },
-    "ChannelDownmix_RetStub": {
+    "ChannelDownmix_Entry_Ret": {
         "patterns": ["downmix_and_resample"],
         "at_start": True,
     },
-    "WebRtcHighpassCutoff_Injected": {
+    "hp_cutoff_Callback_InjectShellcode": {
         "patterns": ["hp_cutoff"],
         "at_start": True,
     },
-    "WebRtcDcReject_Injected": {
+    "dc_reject_Callback_InjectShellcode": {
         "patterns": ["dc_reject"],
         "at_start": True,
     },
-    "WebRtcHighpass_Trampoline": {
+    "WebRtcSplHighPass_Dispatch_MovRet": {
         "patterns": ["InitializeHighPassFilter"],
         "at_start": True,
     },
 
-    "AudioFrame_StereoChannelAssign": {
+    "CreateAudioFrame_ChannelAssign_Mov": {
         "patterns": ["CreateAudioFrameToProcess", "CreateAudioFrame"],
         "at_start": False,
         "arm64_scan": "arm64_channel_movz",
     },
-    "OpusEncoderConfig_SetStereoChannels": {
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev",
                      "OpusConfigC1", "OpusConfigC2"],
         "at_start": False,
         "arm64_scan": "arm64_opus_config_channels",
     },
-    "CodecProbe_ChannelCountPatch": {
+    "CommitAudioCodec_ChannelCount_Imm02": {
         "patterns": ["LocalUser16CommitAudioCodecEv"],
         "at_start": False,
         "arm64_scan": "arm64_stereo_cmp",
         "prefer_largest": True,
     },
-    "DownmixMono_BypassBranch": {
+    "CapturedAudioProcessor_MonoDownmix_NopJmp": {
         "patterns": ["CapturedAudioProcessor7Process"],
         "at_start": False,
         "arm64_scan": "arm64_mono_downmix",
     },
-    "OpusEncoderConfig_CtorBitrate_B": {
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev"],
         "at_start": False,
         "arm64_scan": "arm64_bitrate_const",
     },
-    "AudioEncoder_BitrateMovImm": {
+    "SetBitrate_Imm64_Imm248k": {
         "patterns": ["AudioRtpReceiver17SetupMediaChannel",
                      "SetupMediaChannel"],
         "at_start": False,
         "arm64_scan": "arm64_bitrate_or",
     },
-    "OpusEncoderConfig_IsOkRetTrue": {
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev",
                      "AudioEncoderOpus"],
         "at_start": False,
         "arm64_scan": "arm64_opus_config_isok",
     },
-    "OpusEncoderConfig_CtorBitrate_A": {
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev"],
         "at_start": False,
         "arm64_scan": "arm64_opus_config_init1",
     },
-    "CodecProbe_ForceSuccessBranch": {
+    "CommitAudioCodec_SuccessBranch_Jmp": {
         "patterns": ["LocalUser16CommitAudioCodecEv"],
         "at_start": False,
         "arm64_scan": "arm64_stereo_success2",
         "prefer_largest": True,
     },
-    "SampleRate_Select48kNop": {
+    "SelectSampleRate_Cmov48k_Nop3": {
         "patterns": ["LocalUser16CommitAudioCodecEv"],
         "at_start": False,
         "arm64_scan": "arm64_emulate_48khz",
         "prefer_largest": True,
     },
-    "OpusBitrate_Imul384k": {
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k": {
         "patterns": ["LocalUser16CommitAudioCodecEv"],
         "at_start": False,
         "arm64_scan": "arm64_bitrate_modified",
         "prefer_largest": True,
     },
-    "AudioEncoder_BitrateOrMaskNop": {
+    "SetBitrate_OrMask_Nop3": {
         "patterns": ["AudioRtpReceiver17SetupMediaChannel",
                      "SetupMediaChannel"],
         "at_start": False,
@@ -1243,6 +1502,56 @@ def _linux_scan_within_function(data, func_start, func_size, scan_type, adj):
                 return func_start + i + 2 + adj
         return None
 
+    if scan_type == "set_target_bitrate_mulss":
+        needle = b'\xf3\x0f\x59\x44\x81\xec'
+        idx = func.find(needle)
+        if idx >= 0:
+            return func_start + idx + adj
+        return None
+
+    if scan_type == "get_multiplied_bitrate_mulss":
+        for needle in (b'\xf3\x0f\x59\x44\x81\xec', b'\xf3\x0f\x59\x44\x88\xec'):
+            idx = func.find(needle)
+            if idx >= 0:
+                return func_start + idx + adj
+        return None
+
+    if scan_type == "fec_recreate_jnz":
+        needles = (
+            b'\x41\x80\xbe\x1c\x01\x00\x00\x00',
+            b'\x41\x80\xbc\x1c\x01\x00\x00\x00',
+            b'\x41\x80\x7c\x24\x1c\x01',
+            b'\x80\x79\x1c\x01',
+        )
+        for needle in needles:
+            idx = func.find(needle)
+            if idx >= 0 and idx + len(needle) < flen and func[idx + len(needle)] in (0x74, 0x75):
+                return func_start + idx + len(needle) + adj
+        return None
+
+    if scan_type == "fec_multichannel_jnz":
+        needles = (
+            b'\x41\x80\xbf\x18\x01\x00\x00\x00',
+            b'\x41\x80\xbd\x18\x01\x00\x00\x00',
+            b'\x41\x80\x7d\x18\x01',
+        )
+        for needle in needles:
+            idx = func.find(needle)
+            if idx >= 0 and idx + len(needle) < flen and func[idx + len(needle)] in (0x74, 0x75):
+                return func_start + idx + len(needle) + adj
+        return None
+
+    if scan_type == "fec_set_jz":
+        needles = (
+            b'\x48\x8b\xbf\xa8\x00\x00\x00\x85\xf6',
+            b'\x48\x8b\x89\xa8\x00\x00\x00\x84\xd2',
+        )
+        for needle in needles:
+            idx = func.find(needle)
+            if idx >= 0 and idx + len(needle) < flen and func[idx + len(needle)] in (0x74, 0x75):
+                return func_start + idx + len(needle) + adj
+        return None
+
     if scan_type == "mono_downmix_test":
         def _mono_match_at(i):
             if func[i:i+2] != b'\x84\xc0' or func[i+2] != 0x74:
@@ -1645,8 +1954,8 @@ def find_offset(data, sig, text_start=0, text_end=None):
         if len(matches) == 1:
             file_offset = matches[0] + target_off
             if 0 <= file_offset < len(data):
-                if sig.name == "CodecProbe_ChannelCountPatch" and not has_nearby_stereo_setter(data, matches[0], 120):
-                    print(f"  [FILTER] CodecProbe_ChannelCountPatch @ 0x{matches[0]:X} has no nearby stereo setter (accepting anyway)")
+                if sig.name == "CommitAudioCodec_ChannelCount_Imm02" and not has_nearby_stereo_setter(data, matches[0], 120):
+                    print(f"  [FILTER] CommitAudioCodec_ChannelCount_Imm02 @ 0x{matches[0]:X} has no nearby stereo setter (accepting anyway)")
                 return file_offset, None, tier
 
         resolved = list(matches)
@@ -1655,19 +1964,19 @@ def find_offset(data, sig, text_start=0, text_end=None):
             if len(valid) >= 1:
                 resolved = valid
 
-        if sig.name == "CodecProbe_ChannelCountPatch" and len(resolved) >= 1:
+        if sig.name == "CommitAudioCodec_ChannelCount_Imm02" and len(resolved) >= 1:
             resolved = [m for m in resolved if _ess1_no_duplicate_cmp_in_next_24(data, m)]
             if not resolved:
                 continue
-        if sig.name == "CodecProbe_ChannelCountPatch" and len(resolved) >= 1:
+        if sig.name == "CommitAudioCodec_ChannelCount_Imm02" and len(resolved) >= 1:
             with_setter = [m for m in resolved if has_nearby_stereo_setter(data, m, 120)]
             if len(resolved) > 1 and len(with_setter) >= 1:
                 for m in resolved:
                     if m not in with_setter:
-                        print(f"  [FILTER] Rejected CodecProbe_ChannelCountPatch @ 0x{m:X} — no nearby stereo setter")
+                        print(f"  [FILTER] Rejected CommitAudioCodec_ChannelCount_Imm02 @ 0x{m:X} - no nearby stereo setter")
                 resolved = with_setter
             elif len(resolved) == 1 and not with_setter:
-                print(f"  [FILTER] CodecProbe_ChannelCountPatch @ 0x{resolved[0]:X} has no nearby stereo setter (accepting anyway)")
+                print(f"  [FILTER] CommitAudioCodec_ChannelCount_Imm02 @ 0x{resolved[0]:X} has no nearby stereo setter (accepting anyway)")
 
         if len(resolved) > 1 and sig.expected_original:
             expected = bytes.fromhex(sig.expected_original.replace(' ', ''))
@@ -2103,25 +2412,116 @@ def _topo_sort_derivations(derivations):
 
 
 ALL_OFFSET_NAMES = [
-    "AudioFrame_StereoChannelAssign",
-    "OpusEncoderConfig_SetStereoChannels",
-    "DownmixMono_BypassBranch",
-    "CodecProbe_ChannelCountPatch",
-    "CodecProbe_ForceSuccessBranch",
-    "OpusBitrate_Imul384k",
-    "AudioEncoder_BitrateMovImm",
-    "AudioEncoder_BitrateOrMaskNop",
-    "SampleRate_Select48kNop",
-    "WebRtcHighpass_Trampoline",
-    "WebRtcHighpassCutoff_Injected",
-    "WebRtcDcReject_Injected",
-    "ChannelDownmix_RetStub",
-    "OpusEncoderConfig_IsOkRetTrue",
-    "AudioEncoderCodec_ThrowNoOp",
-    "OpusEncoderConfig_CtorBitrate_A",
-    "OpusEncoderConfig_CtorBitrate_B",
-    "OpusEncoderConfig_CtorUseInbandFecOn",
+    "CreateAudioFrame_ChannelAssign_Mov",
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
+    "CapturedAudioProcessor_MonoDownmix_NopJmp",
+    "CommitAudioCodec_ChannelCount_Imm02",
+    "CommitAudioCodec_SuccessBranch_Jmp",
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k",
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k",
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+    "SetBitrateClamp_Max248k_Cmp",
+    "SetBitrateClamp_Max248k_Mov",
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
+    "SetBitrate_Imm64_Imm248k",
+    "SetBitrate_OrMask_Nop3",
+    "SetTargetBitrate_Mulss_Nop6",
+    "GetMultipliedBitrate_Mulss_Nop7",
+    "GetMultipliedBitrate_Entry_IdentityRet",
+    "SetTargetBitrate_ClampMax248k_Cmp",
+    "SetTargetBitrate_ClampMax248k_Mov",
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp",
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov",
+    "EncoderOpusImpl_RelayClamp248k_Cmp",
+    "EncoderOpusImpl_RelayClamp248k_Mov",
+    "SelectSampleRate_Cmov48k_Nop3",
+    "WebRtcSplHighPass_Dispatch_MovRet",
+    "hp_cutoff_Callback_InjectShellcode",
+    "dc_reject_Callback_InjectShellcode",
+    "ChannelDownmix_Entry_Ret",
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet",
+    "CodecMismatchThrow_Entry_Ret",
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
+    "RecreateEncoderInstance_FecBranch_Jmp",
+    "MultiChannelRecreateEncoder_FecBranch_Jmp",
+    "SetFec_EnableBranch_Jmp",
+    "RecreateEncoderInstance_DtxBranch_Jmp",
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp",
+    "SetDtx_EnableBranch_Jmp",
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear",
 ]
+
+_WINDOWS_PATCHER_OFFSET_ORDER = (
+    "CreateAudioFrame_ChannelAssign_Mov",
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
+    "CapturedAudioProcessor_MonoDownmix_NopJmp",
+    "CommitAudioCodec_ChannelCount_Imm02",
+    "CommitAudioCodec_SuccessBranch_Jmp",
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k",
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k",
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+    "SetBitrateClamp_Max248k_Cmp",
+    "SetBitrateClamp_Max248k_Mov",
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
+    "SetBitrate_Imm64_Imm248k",
+    "SetBitrate_OrMask_Nop3",
+    "SetTargetBitrate_Mulss_Nop6",
+    "GetMultipliedBitrate_Mulss_Nop7",
+    "GetMultipliedBitrate_Entry_IdentityRet",
+    "SetTargetBitrate_ClampMax248k_Cmp",
+    "SetTargetBitrate_ClampMax248k_Mov",
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp",
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov",
+    "EncoderOpusImpl_RelayClamp248k_Cmp",
+    "EncoderOpusImpl_RelayClamp248k_Mov",
+    "SelectSampleRate_Cmov48k_Nop3",
+    "WebRtcSplHighPass_Dispatch_MovRet",
+    "hp_cutoff_Callback_InjectShellcode",
+    "dc_reject_Callback_InjectShellcode",
+    "ChannelDownmix_Entry_Ret",
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet",
+    "CodecMismatchThrow_Entry_Ret",
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
+    "RecreateEncoderInstance_FecBranch_Jmp",
+    "MultiChannelRecreateEncoder_FecBranch_Jmp",
+    "SetFec_EnableBranch_Jmp",
+    "RecreateEncoderInstance_DtxBranch_Jmp",
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp",
+    "SetDtx_EnableBranch_Jmp",
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear",
+    "NetEqDelayManager_MsPerLoss_Imm0",
+    "PacerBlockAudio_Flag_XorFalse",
+    "SetAutomaticGainControlConfig_Entry_Ret",
+    "SetAutomaticGainControl_Entry_Ret",
+    "SetNoiseSuppression_Entry_Ret",
+    "SetEchoCancellation_Entry_Ret",
+    "SetEchoCancellationPreEcho_Entry_Ret",
+    "EnableBuiltInAEC_Entry_Ret",
+    "SetNoiseCancellation_Entry_Ret",
+    "SetNoiseCancellationDuringProcessing_Entry_Ret",
+)
+_WINDOWS_PATCHER_CORE_COUNT = 45
+if len(_WINDOWS_PATCHER_OFFSET_ORDER) != 55:
+    raise RuntimeError("_WINDOWS_PATCHER_OFFSET_ORDER must be 55 entries (patcher v18.2 sync)")
+
+WINDOWS_PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT])
+WINDOWS_EXTENDED_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[_WINDOWS_PATCHER_CORE_COUNT:])
 
 LINUX_ONLY_OFFSET_NAMES = ("OpusEncoderConfig_SetMultiChannelStereo",)
 
@@ -2137,54 +2537,18 @@ def _missing_discovered(results, fmt):
     return m
 
 
-_WINDOWS_PATCHER_OFFSET_ORDER = (
-    "AudioFrame_StereoChannelAssign",
-    "OpusEncoderConfig_SetStereoChannels",
-    "DownmixMono_BypassBranch",
-    "CodecProbe_ChannelCountPatch",
-    "CodecProbe_ForceSuccessBranch",
-    "OpusBitrate_Imul384k",
-    "AudioEncoder_BitrateMovImm",
-    "AudioEncoder_BitrateOrMaskNop",
-    "SampleRate_Select48kNop",
-    "WebRtcHighpass_Trampoline",
-    "WebRtcHighpassCutoff_Injected",
-    "WebRtcDcReject_Injected",
-    "ChannelDownmix_RetStub",
-    "OpusEncoderConfig_IsOkRetTrue",
-    "AudioEncoderCodec_ThrowNoOp",
-    "OpusEncoderConfig_CtorBitrate_A",
-    "OpusEncoderConfig_CtorBitrate_B",
-    "OpusEncoderConfig_CtorUseInbandFecOn",
-    "NetEq_DelayMsPerLossPercent",
-    "Pacer_ForceBlockAudioFalse",
-    "Discord_SetAutomaticGainControlConfig",
-    "Discord_SetAutomaticGainControl_bool",
-    "Discord_SetNoiseSuppression_bool",
-    "Discord_SetEchoCancellation_bool",
-    "Discord_SetEchoCancellationPreEcho_bool",
-    "Discord_EnableBuiltInAcousticEchoCancel_bool",
-    "Discord_SetNoiseCancellation_bool",
-    "Discord_SetNoiseCancellationDuringProcessing_bool",
-)
-if len(_WINDOWS_PATCHER_OFFSET_ORDER) != 28:
-    raise RuntimeError("_WINDOWS_PATCHER_OFFSET_ORDER must be 28 entries (patcher sync)")
-
-WINDOWS_PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[:18])
-WINDOWS_EXTENDED_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[18:])
-
 WINDOWS_DISCORD_EXPORT_NAMES = {
-    "Discord_SetAutomaticGainControlConfig": "?SetAutomaticGainControlConfig@Discord@@QEAAXUGainControllerConfig@media@discord@@@Z",
-    "Discord_SetAutomaticGainControl_bool": "?SetAutomaticGainControl@Discord@@QEAAX_N@Z",
-    "Discord_SetNoiseSuppression_bool": "?SetNoiseSuppression@Discord@@QEAAX_N@Z",
-    "Discord_SetEchoCancellation_bool": "?SetEchoCancellation@Discord@@QEAAX_N@Z",
-    "Discord_SetEchoCancellationPreEcho_bool": "?SetEchoCancellationPreEcho@Discord@@QEAAX_N@Z",
-    "Discord_EnableBuiltInAcousticEchoCancel_bool": "?EnableBuiltInAEC@Discord@@QEAAX_N@Z",
-    "Discord_SetNoiseCancellation_bool": "?SetNoiseCancellation@Discord@@QEAAX_N@Z",
-    "Discord_SetNoiseCancellationDuringProcessing_bool": "?SetNoiseCancellationDuringProcessing@Discord@@QEAAX_N@Z",
+    "SetAutomaticGainControlConfig_Entry_Ret": "?SetAutomaticGainControlConfig@Discord@@QEAAXUGainControllerConfig@media@discord@@@Z",
+    "SetAutomaticGainControl_Entry_Ret": "?SetAutomaticGainControl@Discord@@QEAAX_N@Z",
+    "SetNoiseSuppression_Entry_Ret": "?SetNoiseSuppression@Discord@@QEAAX_N@Z",
+    "SetEchoCancellation_Entry_Ret": "?SetEchoCancellation@Discord@@QEAAX_N@Z",
+    "SetEchoCancellationPreEcho_Entry_Ret": "?SetEchoCancellationPreEcho@Discord@@QEAAX_N@Z",
+    "EnableBuiltInAEC_Entry_Ret": "?EnableBuiltInAEC@Discord@@QEAAX_N@Z",
+    "SetNoiseCancellation_Entry_Ret": "?SetNoiseCancellation@Discord@@QEAAX_N@Z",
+    "SetNoiseCancellationDuringProcessing_Entry_Ret": "?SetNoiseCancellationDuringProcessing@Discord@@QEAAX_N@Z",
 }
-if set(WINDOWS_DISCORD_EXPORT_NAMES) != set(_WINDOWS_PATCHER_OFFSET_ORDER[20:]):
-    raise RuntimeError("WINDOWS_DISCORD_EXPORT_NAMES keys must match Discord API LOCK entries in _WINDOWS_PATCHER_OFFSET_ORDER[20:]")
+if set(WINDOWS_DISCORD_EXPORT_NAMES) != set(_WINDOWS_PATCHER_OFFSET_ORDER[47:]):
+    raise RuntimeError("WINDOWS_DISCORD_EXPORT_NAMES keys must match Discord API LOCK entries in _WINDOWS_PATCHER_OFFSET_ORDER[47:]")
 
 PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER)
 
@@ -2213,8 +2577,8 @@ for _map_name, _map in (("ELF_SYMBOL_MAP", ELF_SYMBOL_MAP), ("ARM64_SYMBOL_MAP",
 
 def _log_context_fingerprints(data, results, adj):
     critical = [
-        "CodecProbe_ChannelCountPatch", "OpusEncoderConfig_SetStereoChannels", "DownmixMono_BypassBranch",
-        "AudioEncoder_BitrateMovImm", "AudioFrame_StereoChannelAssign",
+        "CommitAudioCodec_ChannelCount_Imm02", "AudioEncoderOpusConfig_Ctor_Channels_Imm02", "CapturedAudioProcessor_MonoDownmix_NopJmp",
+        "SetBitrate_Imm64_Imm248k", "CreateAudioFrame_ChannelAssign_Mov",
     ]
     for name in critical:
         if name not in results:
@@ -2273,7 +2637,7 @@ def _sliding_window_recover(data, anchor_config, delta, name, adj, bin_fmt='pe')
         if len(candidates) == 0:
             return None, 0
         if len(candidates) != 1:
-            print(f"  [SLIDING AMBIGUOUS] {name}: {len(candidates)} matches for expected byte in ±{window}, skipping")
+            print(f"  [SLIDING AMBIGUOUS] {name}: {len(candidates)} matches for expected byte in +/-{window}, skipping")
             return None, 0
         candidate, slide_dist = candidates[0]
         return candidate + adj, slide_dist
@@ -2311,37 +2675,37 @@ def _find_emulate_bitrate_in_anchor_window(data, anchor_file, adj, window=0x2000
 
 def _run_heuristic_scan(data, missing_names, adj, text_start, text_end):
     hints = []
-    if "OpusBitrate_Imul384k" in missing_names:
+    if "ApplySettings_BitrateCalcLow_Channels_Mov248k" in missing_names:
         imul_pat = Signature._parse("69 ?? 00 7D 00 00")
         matches = scan_pattern(data, imul_pat, start=text_start, end=text_end)
         for m in matches:
             candidate_file = m + 2
             reason = f"imul *,32000 @file:0x{m:X}"
-            hints.append(("OpusBitrate_Imul384k", candidate_file, reason))
-    if "SampleRate_Select48kNop" in missing_names:
+            hints.append(("ApplySettings_BitrateCalcLow_Channels_Mov248k", candidate_file, reason))
+    if "SelectSampleRate_Cmov48k_Nop3" in missing_names:
         for i in range(text_start, min(text_end, len(data) - 24)):
             if data[i] == 0x83 and 0xB8 <= data[i+1] <= 0xBF and (data[i+1] & 7) != 4:
                 if i + 7 <= len(data) and data[i+6] == 0x02:
                     for j in range(7, 20):
                         if i + j + 2 <= len(data) and data[i+j] == 0x0F and 0x40 <= data[i+j+1] <= 0x4F:
-                            hints.append(("SampleRate_Select48kNop", i + j, f"cmp ...,2 + cmov @file:0x{i:X} [HEURISTIC USED]"))
+                            hints.append(("SelectSampleRate_Cmov48k_Nop3", i + j, f"cmp ...,2 + cmov @file:0x{i:X} [HEURISTIC USED]"))
                             break
             if data[i:i+2] == b'\x41\x83' and i + 8 <= len(data):
                 if 0xB8 <= data[i+2] <= 0xBF and (data[i+2] & 7) != 4 and data[i+7] == 0x02:
                     for j in range(8, 24):
                         if i + j + 2 <= len(data) and data[i+j] == 0x0F and 0x40 <= data[i+j+1] <= 0x4F:
-                            hints.append(("SampleRate_Select48kNop", i + j, f"41 83 cmp ...,2 + cmov @file:0x{i:X} [HEURISTIC USED]"))
+                            hints.append(("SelectSampleRate_Cmov48k_Nop3", i + j, f"41 83 cmp ...,2 + cmov @file:0x{i:X} [HEURISTIC USED]"))
                             break
-    if "AudioFrame_StereoChannelAssign" in missing_names:
+    if "CreateAudioFrame_ChannelAssign_Mov" in missing_names:
         pair_pat = Signature._parse("B8 80 BB 00 00 BD 00 7D 00 00")
         matches = scan_pattern(data, pair_pat, start=text_start, end=text_end, limit=5)
         for m in matches:
             for off in range(20, 60):
                 pos = m + off
                 if pos + 4 <= len(data) and data[pos:pos+4] == b'\x4C\x0F\x43\xE8':
-                    hints.append(("AudioFrame_StereoChannelAssign", pos, f"48k/32k pair + cmovae @file:0x{m:X}"))
+                    hints.append(("CreateAudioFrame_ChannelAssign_Mov", pos, f"48k/32k pair + cmovae @file:0x{m:X}"))
                     break
-    if "OpusEncoderConfig_SetStereoChannels" in missing_names:
+    if "AudioEncoderOpusConfig_Ctor_Channels_Imm02" in missing_names:
         bb80_pat = Signature._parse("48 B9 14 00 00 00 80 BB 00 00")
         matches = scan_pattern(data, bb80_pat, start=text_start, end=text_end, limit=5)
         for m in matches:
@@ -2350,7 +2714,7 @@ def _run_heuristic_scan(data, missing_names, adj, text_start, text_end):
                 if pos + 5 <= len(data) and data[pos] == 0x48 and data[pos+1] == 0xC7:
                     target = pos + 4
                     if target < len(data):
-                        hints.append(("OpusEncoderConfig_SetStereoChannels", target,
+                        hints.append(("AudioEncoderOpusConfig_Ctor_Channels_Imm02", target,
                                      f"Opus config struct @file:0x{m:X}"))
                     break
 
@@ -2411,8 +2775,8 @@ def _cross_validate(results, adj, data, tiers_used=None, bin_fmt='pe'):
             if checked_any and not matched_any and mismatch_msg:
                 warnings.append(mismatch_msg)
 
-    if "OpusEncoderConfig_CtorBitrate_A" in results and "OpusEncoderConfig_CtorBitrate_B" in results:
-        for name in ["OpusEncoderConfig_CtorBitrate_A", "OpusEncoderConfig_CtorBitrate_B"]:
+    if "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k" in results and "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k" in results:
+        for name in ["AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k", "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k"]:
             f = results[name] - adj
             if 0 <= f and f + 4 <= len(data):
                 val = data[f:f+4]
@@ -2424,8 +2788,27 @@ def _cross_validate(results, adj, data, tiers_used=None, bin_fmt='pe'):
 
 
 BITRATE_OFFSET_NAMES = [
-    "OpusBitrate_Imul384k", "AudioEncoder_BitrateMovImm",
-    "OpusEncoderConfig_CtorBitrate_A", "OpusEncoderConfig_CtorBitrate_B",
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k",
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k",
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+    "SetBitrateClamp_Max248k_Cmp",
+    "SetBitrateClamp_Max248k_Mov",
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
+    "SetBitrate_Imm64_Imm248k",
+    "GetMultipliedBitrate_Entry_IdentityRet",
+    "SetTargetBitrate_ClampMax248k_Cmp",
+    "SetTargetBitrate_ClampMax248k_Mov",
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp",
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov",
+    "EncoderOpusImpl_RelayClamp248k_Cmp",
+    "EncoderOpusImpl_RelayClamp248k_Mov",
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
 ]
 
 def run_bitrate_audit_pe(data, results, adj, text_start, text_end):
@@ -2589,7 +2972,7 @@ def discover_offsets_arm64(data, arm64_info):
         elif method == 'arm64-hint':
             print(f"  [HINT] {offset_name:45s} function '{safe_sym}' - scan did not match")
 
-    if "OpusBitrate_Imul384k" not in results:
+    if "ApplySettings_BitrateCalcLow_Channels_Mov248k" not in results:
         slice_start = fat_offset
         slice_end = fat_offset + arm64_info.get('fat_size', 0)
         if slice_end > len(data):
@@ -2601,9 +2984,9 @@ def discover_offsets_arm64(data, arm64_info):
             if data[i:i + 4] == literal_32000 and data[i:i + 3] == orig_low3:
                 candidates.append(i)
         if candidates:
-            results["OpusBitrate_Imul384k"] = candidates[0] + adj
-            tiers_used["OpusBitrate_Imul384k"] = "arm64-literal-32000(1st)"
-            print(f"  [SCAN] {'OpusBitrate_Imul384k':45s} = 0x{candidates[0] + adj:X}  (file 0x{candidates[0]:X})  [literal 32000]")
+            results["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = candidates[0] + adj
+            tiers_used["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = "arm64-literal-32000(1st)"
+            print(f"  [SCAN] {'ApplySettings_BitrateCalcLow_Channels_Mov248k':45s} = 0x{candidates[0] + adj:X}  (file 0x{candidates[0]:X})  [literal 32000]")
 
     validation_failures = _validate_discovered_offsets(results, data, adj)
     for name, reason in validation_failures:
@@ -2732,8 +3115,268 @@ def _pe_parse_exports(data, bin_info):
     return out
 
 
+def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_start, text_end):
+    if bin_info.get("format") != "pe":
+        return
+
+    adj = bin_info.get("file_offset_adjustment", 0xC00)
+    tier_imms = (32000, 48000, 60000)
+    flat_ebp = bytes.fromhex("BDC0C8030090")
+    flat_r8d = bytes.fromhex("41B8C8030090")
+    max510 = struct.pack("<I", 510720)
+    max248 = struct.pack("<I", 248000)
+
+    def _tier_ebp_valid(rva):
+        fo = rva - adj
+        if fo < 0 or fo + 9 > len(data):
+            return False
+        if data[fo:fo + 6] == flat_ebp:
+            return True
+        return data[fo:fo + 2] == b"\x69\xE8" and data[fo + 6:fo + 9] == b"\x0F\xAF\xE8"
+
+    def _apply_derived(name, anchor_name, delta, label):
+        if name in results or anchor_name not in results:
+            return False
+        config_off = results[anchor_name] + delta
+        file_off = config_off - adj
+        if file_off < 0 or file_off >= len(data):
+            return False
+        results[name] = config_off
+        tiers_used[name] = label
+        print(f"  [ OK ] {name:45s} = 0x{config_off:X}  [{label}]")
+        return True
+
+    print("\n" + "=" * 65)
+    print("  PHASE 2d: Bitrate v18 (flat tiers / clamps / identity)")
+    print("=" * 65)
+
+    apply_names = (
+        "ApplySettings_BitrateCalcLow_Channels_Mov248k",
+        "ApplySettings_BitrateCalcMid_Channels_Mov248k",
+        "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
+    )
+    recreate_names = (
+        "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+        "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+        "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+    )
+    for name in apply_names + recreate_names:
+        if name in results and not _tier_ebp_valid(results[name]):
+            print(f"  [PURGE] {name:45s} @ 0x{results[name]:X} (invalid tier bytes)")
+            results.pop(name, None)
+            tiers_used.pop(name, None)
+
+    def _scan_tier_ebp_sites(start, end, limit=3):
+        sites = []
+        pos = max(0, start)
+        while pos < min(end, len(data) - 9) and len(sites) < limit:
+            if data[pos:pos + 6] == flat_ebp:
+                sites.append(pos + adj)
+                pos += 6
+                continue
+            if data[pos:pos + 2] == b"\x69\xE8" and data[pos + 6:pos + 9] == b"\x0F\xAF\xE8":
+                imm = struct.unpack_from("<I", data, pos + 2)[0]
+                if imm in tier_imms:
+                    sites.append(pos + adj)
+                    pos += 6
+                    continue
+            pos += 1
+        return sites
+
+    def _scan_adaptor_r8d_sites(start, end, limit=3):
+        sites = []
+        pos = max(0, start)
+        while pos < min(end, len(data) - 9) and len(sites) < limit:
+            if data[pos:pos + 7] == flat_r8d:
+                sites.append(pos + adj)
+                pos += 7
+                continue
+            if data[pos:pos + 2] in (b"\x41\xB8", b"\x41\xB9"):
+                imm = struct.unpack_from("<I", data, pos + 2)[0]
+                if imm in tier_imms and data.find(b"\x41\x0F\xAF\xC0", pos, min(len(data), pos + 24)) >= 0:
+                    sites.append(pos + adj)
+                    pos += 7
+                    continue
+            pos += 1
+        return sites
+
+    if not all(n in results for n in apply_names):
+        anchor = results.get("CommitAudioCodec_ChannelCount_Imm02")
+        if anchor is not None:
+            anchor_file = anchor - adj
+            sites = _scan_tier_ebp_sites(anchor_file - 0x2000, anchor_file + 0x4000, 3)
+            if len(sites) >= 3:
+                for name, off in zip(apply_names, sites[:3]):
+                    if name not in results:
+                        results[name] = off
+                        tiers_used[name] = "extended(tier-ebp-apply)"
+                        print(f"  [ OK ] {name:45s} = 0x{off:X}")
+
+    recreate_names = (
+        "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+        "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+        "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+    )
+    if not all(n in results for n in recreate_names):
+        start = text_start
+        if "ApplySettings_BitrateCalcHigh_Channels_Mov248k" in results:
+            start = max(text_start, results["ApplySettings_BitrateCalcHigh_Channels_Mov248k"] - adj)
+        apply_sites = {results[n] for n in apply_names if n in results}
+        sites = [s for s in _scan_tier_ebp_sites(start, text_end, 6) if s not in apply_sites]
+        if len(sites) >= 3:
+            for name, off in zip(recreate_names, sites[:3]):
+                if name not in results:
+                    results[name] = off
+                    tiers_used[name] = "extended(tier-ebp-recreate)"
+                    print(f"  [ OK ] {name:45s} = 0x{off:X}")
+
+    adapt_names = (
+        "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+        "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+        "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
+    )
+    if not all(n in results for n in adapt_names):
+        sites = _scan_adaptor_r8d_sites(text_start, text_end, 3)
+        if len(sites) >= 3:
+            for name, off in zip(adapt_names, sites[:3]):
+                if name not in results:
+                    results[name] = off
+                    tiers_used[name] = "extended(adaptor-r8d)"
+                    print(f"  [ OK ] {name:45s} = 0x{off:X}")
+
+    apply_anchor = results.get("ApplySettings_BitrateCalcLow_Channels_Mov248k")
+    if apply_anchor is not None:
+        if "SetBitrate_Imm64_Imm248k" in results and abs(results["SetBitrate_Imm64_Imm248k"] - apply_anchor) > 0x3000:
+            print(f"  [PURGE] SetBitrate_Imm64_Imm248k{' ':22s} @ 0x{results['SetBitrate_Imm64_Imm248k']:X} (too far from ApplySettings)")
+            results.pop("SetBitrate_Imm64_Imm248k", None)
+            tiers_used.pop("SetBitrate_Imm64_Imm248k", None)
+            for dep in ("SetBitrate_OrMask_Nop3", "SetTargetBitrate_Mulss_Nop6",
+                        "SetTargetBitrate_ClampMax248k_Cmp", "SetTargetBitrate_ClampMax248k_Mov",
+                        "EncoderOpusImpl_RelayClamp248k_Cmp", "EncoderOpusImpl_RelayClamp248k_Mov"):
+                results.pop(dep, None)
+                tiers_used.pop(dep, None)
+        if "SetBitrate_Imm64_Imm248k" not in results:
+            af = apply_anchor - adj
+            win_start = max(text_start, af - 0x1000)
+            win_end = min(text_end, af + 0x3000)
+            for pos in range(win_start, win_end - 16):
+                if data[pos:pos + 2] == b"\x48\xB9" and data[pos + 2:pos + 7] == _BITRATE_LE + b"\x00":
+                    config_off = pos + 4 + adj
+                    results["SetBitrate_Imm64_Imm248k"] = config_off
+                    tiers_used["SetBitrate_Imm64_Imm248k"] = "extended(setbitrate-near-apply)"
+                    print(f"  [ OK ] SetBitrate_Imm64_Imm248k{' ':22s} = 0x{config_off:X}")
+                    break
+                if data[pos:pos + 2] == b"\x89\xF8" and data[pos + 2:pos + 4] == b"\x48\xB9":
+                    imm = data[pos + 4:pos + 9]
+                    if imm == _BITRATE_LE + b"\x00":
+                        config_off = pos + 4 + adj
+                        results["SetBitrate_Imm64_Imm248k"] = config_off
+                        tiers_used["SetBitrate_Imm64_Imm248k"] = "extended(setbitrate-near-apply)"
+                        print(f"  [ OK ] SetBitrate_Imm64_Imm248k{' ':22s} = 0x{config_off:X}")
+                        break
+
+    if "SetTargetBitrate_Mulss_Nop6" not in results and "SetBitrate_Imm64_Imm248k" in results:
+        _apply_derived("SetTargetBitrate_Mulss_Nop6", "SetBitrate_Imm64_Imm248k", 0x40,
+                       "derived(SetBitrate_Imm64_Imm248k+0x40)")
+    elif "SetTargetBitrate_Mulss_Nop6" in results and "SetBitrate_Imm64_Imm248k" in results:
+        if abs(results["SetTargetBitrate_Mulss_Nop6"] - results["SetBitrate_Imm64_Imm248k"]) > 0x100:
+            results.pop("SetTargetBitrate_Mulss_Nop6", None)
+            tiers_used.pop("SetTargetBitrate_Mulss_Nop6", None)
+            _apply_derived("SetTargetBitrate_Mulss_Nop6", "SetBitrate_Imm64_Imm248k", 0x40,
+                           "derived(SetBitrate_Imm64_Imm248k+0x40)")
+
+    if "GetMultipliedBitrate_Mulss_Nop7" in results:
+        entry = results["GetMultipliedBitrate_Mulss_Nop7"] - 0x3D
+        fo = entry - adj
+        if 0 <= fo and fo + 3 <= len(data) and data[fo:fo + 3] in (b"\x89\xc8\x48", b"\x8b\xc1\xc3"):
+            results["GetMultipliedBitrate_Entry_IdentityRet"] = entry
+            tiers_used["GetMultipliedBitrate_Entry_IdentityRet"] = "extended(getmult-entry-exact)"
+            print(f"  [ OK ] GetMultipliedBitrate_Entry_IdentityRet{' ':10s} = 0x{entry:X}")
+
+    clamp_windows = []
+    if apply_anchor is not None:
+        af = apply_anchor - adj
+        clamp_windows.append((
+            "ApplySettings_MaxAvgBitrateClamp248k_Cmp",
+            "ApplySettings_MaxAvgBitrateClamp248k_Mov",
+            b"\x81\xFB", b"\xB8",
+            max(text_start, af), min(text_end, af + 0x200),
+        ))
+    recreate_high = results.get("RecreateEncoder_BitrateCalcHigh_Channels_Mov248k")
+    if recreate_high is not None:
+        rf = recreate_high - adj
+        clamp_windows.append((
+            "SetBitrateClamp_Max248k_Cmp",
+            "SetBitrateClamp_Max248k_Mov",
+            b"\x81\xFB", b"\xB8",
+            max(text_start, rf), min(text_end, rf + 0x120),
+        ))
+    set_br = results.get("SetBitrate_Imm64_Imm248k")
+    if set_br is not None:
+        sf = set_br - adj
+        clamp_windows.append((
+            "SetTargetBitrate_ClampMax248k_Cmp",
+            "SetTargetBitrate_ClampMax248k_Mov",
+            b"\x81\xFA", b"\xBA",
+            max(text_start, sf - 0x80), min(text_end, sf + 0x80),
+        ))
+    set_mulss = results.get("SetTargetBitrate_Mulss_Nop6")
+    if set_mulss is not None:
+        mf = set_mulss - adj
+        clamp_windows.append((
+            "EncoderOpusImpl_RelayClamp248k_Cmp",
+            "EncoderOpusImpl_RelayClamp248k_Mov",
+            b"\x3D", b"\xBF",
+            max(text_start, mf), min(text_end, mf + 0x400),
+        ))
+
+    for cmp_name, mov_name, cmp_op, mov_op, win_start, win_end in clamp_windows:
+        if cmp_name in results and mov_name in results:
+            continue
+        pos = win_start
+        while pos < win_end - 12:
+            if cmp_op == b"\x3D":
+                if data[pos] == 0x3D and data[pos + 1:pos + 5] in (max510, max248):
+                    cmp_off = pos + adj
+                    mov_at = pos + 5
+                    if mov_at + 5 <= len(data) and data[mov_at] == 0xBF and data[mov_at + 1:mov_at + 5] in (max510, max248):
+                        if cmp_name not in results:
+                            results[cmp_name] = cmp_off
+                            tiers_used[cmp_name] = "extended(clamp-window)"
+                            print(f"  [ OK ] {cmp_name:45s} = 0x{cmp_off:X}")
+                        if mov_name not in results:
+                            results[mov_name] = mov_at + adj
+                            tiers_used[mov_name] = "extended(clamp-window)"
+                            print(f"  [ OK ] {mov_name:45s} = 0x{mov_at + adj:X}")
+                        break
+            elif data[pos:pos + 2] == cmp_op and data[pos + 2:pos + 6] in (max510, max248):
+                cmp_off = pos + adj
+                mov_at = pos + 6
+                if mov_at + 5 <= len(data) and data[mov_at] == mov_op[0] and data[mov_at + 1:mov_at + 5] in (max510, max248):
+                    if cmp_name not in results:
+                        results[cmp_name] = cmp_off
+                        tiers_used[cmp_name] = "extended(clamp-window)"
+                        print(f"  [ OK ] {cmp_name:45s} = 0x{cmp_off:X}")
+                    if mov_name not in results:
+                        results[mov_name] = mov_at + adj
+                        tiers_used[mov_name] = "extended(clamp-window)"
+                        print(f"  [ OK ] {mov_name:45s} = 0x{mov_at + adj:X}")
+                    break
+            pos += 1
+
+    for name, anchor, delta in (
+        ("SetTargetBitrate_ClampMax248k_Cmp", "SetBitrate_Imm64_Imm248k", -0x3C),
+        ("SetTargetBitrate_ClampMax248k_Mov", "SetTargetBitrate_ClampMax248k_Cmp", 0x6),
+        ("EncoderOpusImpl_RelayClamp248k_Cmp", "SetTargetBitrate_Mulss_Nop6", 0x2FB),
+        ("EncoderOpusImpl_RelayClamp248k_Mov", "EncoderOpusImpl_RelayClamp248k_Cmp", 0x5),
+        ("SetBitrateClamp_Max248k_Cmp", "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xBE),
+        ("SetBitrateClamp_Max248k_Mov", "SetBitrateClamp_Max248k_Cmp", 0x6),
+    ):
+        _apply_derived(name, anchor, delta, f"derived({anchor}+0x{delta & 0xFFFFFFFF:X})")
+
+
 def _discover_windows_extended_offsets_pe(data, bin_info, results, tiers_used, text_start, text_end):
-    if bin_info.get("format") != "pe" or "CodecProbe_ChannelCountPatch" not in results:
+    if bin_info.get("format") != "pe" or "CommitAudioCodec_ChannelCount_Imm02" not in results:
         return
 
     adj = bin_info.get("file_offset_adjustment", 0xC00)
@@ -2755,22 +3398,22 @@ def _discover_windows_extended_offsets_pe(data, bin_info, results, tiers_used, t
         idx = j + 1
     if len(ne_hits) == 1:
         rva = ne_hits[0]
-        results["NetEq_DelayMsPerLossPercent"] = rva
-        tiers_used["NetEq_DelayMsPerLossPercent"] = "extended(neteq-movabs)"
-        print(f"  [ OK ] NetEq_DelayMsPerLossPercent{' ':16s} = 0x{rva:X}  [movabs 14..C8]")
+        results["NetEqDelayManager_MsPerLoss_Imm0"] = rva
+        tiers_used["NetEqDelayManager_MsPerLoss_Imm0"] = "extended(neteq-movabs)"
+        print(f"  [ OK ] NetEqDelayManager_MsPerLoss_Imm0{' ':16s} = 0x{rva:X}  [movabs 14..C8]")
     elif not ne_hits:
-        print("  [FAIL] NetEq_DelayMsPerLossPercent: movabs pattern not found")
+        print("  [FAIL] NetEqDelayManager_MsPerLoss_Imm0: movabs pattern not found")
     else:
-        print(f"  [FAIL] NetEq_DelayMsPerLossPercent: ambiguous ({len(ne_hits)} movabs hits)")
+        print(f"  [FAIL] NetEqDelayManager_MsPerLoss_Imm0: ambiguous ({len(ne_hits)} movabs hits)")
 
     pacer_key = b"WebRTC-Pacer-BlockAudio\x00"
     pk = data.find(pacer_key)
     if pk < 0:
-        print("  [FAIL] Pacer_ForceBlockAudioFalse: string WebRTC-Pacer-BlockAudio not found")
+        print("  [FAIL] PacerBlockAudio_Flag_XorFalse: string WebRTC-Pacer-BlockAudio not found")
     else:
         str_rva = _pe_file_off_to_rva(pk, sections)
         if str_rva is None:
-            print("  [FAIL] Pacer_ForceBlockAudioFalse: could not map string file offset to RVA")
+            print("  [FAIL] PacerBlockAudio_Flag_XorFalse: could not map string file offset to RVA")
         else:
             str_va = image_base + str_rva
             lea_rva = None
@@ -2788,7 +3431,7 @@ def _discover_windows_extended_offsets_pe(data, bin_info, results, tiers_used, t
                         break
                 i += 1
             if lea_rva is None:
-                print("  [FAIL] Pacer_ForceBlockAudioFalse: no LEA to BlockAudio string in .text")
+                print("  [FAIL] PacerBlockAudio_Flag_XorFalse: no LEA to BlockAudio string in .text")
             else:
                 lea_file = lea_rva - adj
                 found_p = None
@@ -2797,11 +3440,11 @@ def _discover_windows_extended_offsets_pe(data, bin_info, results, tiers_used, t
                         found_p = k + adj
                         break
                 if found_p:
-                    results["Pacer_ForceBlockAudioFalse"] = found_p
-                    tiers_used["Pacer_ForceBlockAudioFalse"] = "extended(pacer-blockaudio)"
-                    print(f"  [ OK ] Pacer_ForceBlockAudioFalse{' ':21s} = 0x{found_p:X}  [setz bl after LEA]")
+                    results["PacerBlockAudio_Flag_XorFalse"] = found_p
+                    tiers_used["PacerBlockAudio_Flag_XorFalse"] = "extended(pacer-blockaudio)"
+                    print(f"  [ OK ] PacerBlockAudio_Flag_XorFalse{' ':21s} = 0x{found_p:X}  [setz bl after LEA]")
                 else:
-                    print("  [FAIL] Pacer_ForceBlockAudioFalse: setz bl not found after LEA")
+                    print("  [FAIL] PacerBlockAudio_Flag_XorFalse: setz bl not found after LEA")
 
     exports = _pe_parse_exports(data, bin_info)
     if not exports:
@@ -3011,19 +3654,19 @@ def _discover_offsets_impl(data, bin_info):
 
     patched_fallbacks = []
 
-    if "DownmixMono_BypassBranch" not in results:
+    if "CapturedAudioProcessor_MonoDownmix_NopJmp" not in results:
         fb_pat = Signature._parse("48 89 F9 E8 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 E9")
         matches = scan_pattern(data, fb_pat, start=text_start, end=text_end)
         if len(matches) > 1:
             matches = [m for m in matches if _mono_downmixer_disambiguator(data, m)]
         if len(matches) == 1:
             config_off = matches[0] + 8 + adj
-            results["DownmixMono_BypassBranch"] = config_off
-            tiers_used["DownmixMono_BypassBranch"] = "patched-fallback"
-            patched_fallbacks.append("DownmixMono_BypassBranch")
-            print(f"  [FALL] DownmixMono_BypassBranch{' ':30s} = 0x{config_off:X}  [patched NOP sled]")
+            results["CapturedAudioProcessor_MonoDownmix_NopJmp"] = config_off
+            tiers_used["CapturedAudioProcessor_MonoDownmix_NopJmp"] = "patched-fallback"
+            patched_fallbacks.append("CapturedAudioProcessor_MonoDownmix_NopJmp")
+            print(f"  [FALL] CapturedAudioProcessor_MonoDownmix_NopJmp{' ':30s} = 0x{config_off:X}  [patched NOP sled]")
 
-    if "AudioEncoder_BitrateMovImm" not in results:
+    if "SetBitrate_Imm64_Imm248k" not in results:
         for fb_hex in [
             "89 F8 48 B9 ?? ?? ?? ?? ?? ?? ?? ?? 90 90 90 48 89 4E 1C",
             "89 ?? 48 B9 ?? ?? ?? ?? ?? ?? ?? ?? 90 90 90 48 89 ?? ??",
@@ -3032,16 +3675,46 @@ def _discover_offsets_impl(data, bin_info):
             matches = scan_pattern(data, fb_pat, start=text_start, end=text_end)
             if len(matches) == 1:
                 config_off = matches[0] + 4 + adj
-                results["AudioEncoder_BitrateMovImm"] = config_off
-                tiers_used["AudioEncoder_BitrateMovImm"] = "patched-fallback"
-                patched_fallbacks.append("AudioEncoder_BitrateMovImm")
-                print(f"  [FALL] AudioEncoder_BitrateMovImm{' ':20s} = 0x{config_off:X}  [patched or->NOP]")
+                results["SetBitrate_Imm64_Imm248k"] = config_off
+                tiers_used["SetBitrate_Imm64_Imm248k"] = "patched-fallback"
+                patched_fallbacks.append("SetBitrate_Imm64_Imm248k")
+                print(f"  [FALL] SetBitrate_Imm64_Imm248k{' ':20s} = 0x{config_off:X}  [patched or->NOP]")
                 break
 
-    if "WebRtcHighpassCutoff_Injected" not in results:
-        hp_key = "WebRtcHighpass_Trampoline"
-        if hp_key not in results and "CodecProbe_ChannelCountPatch" in results:
-            results[hp_key] = results["CodecProbe_ChannelCountPatch"] + 0xC275
+    if "SetTargetBitrate_Mulss_Nop6" not in results and "SetBitrate_Imm64_Imm248k" in results:
+        fo = results["SetBitrate_Imm64_Imm248k"] - adj + 0x40
+        if 0 <= fo and fo + 6 <= len(data) and data[fo:fo + 6] == b"\x90" * 6:
+            results["SetTargetBitrate_Mulss_Nop6"] = fo + adj
+            tiers_used["SetTargetBitrate_Mulss_Nop6"] = "patched-fallback"
+            patched_fallbacks.append("SetTargetBitrate_Mulss_Nop6")
+            print(f"  [FALL] SetTargetBitrate_Mulss_Nop6{' ':20s} = 0x{fo + adj:X}  [patched mulss NOP]")
+
+    if "GetMultipliedBitrate_Mulss_Nop7" not in results:
+        mulss_pat = Signature._parse("F3 0F 2A C0 90 90 90 90 90 90 90 F3 0F 2C C0 C3")
+        matches = scan_pattern(data, mulss_pat, start=text_start, end=text_end)
+        if len(matches) == 1:
+            config_off = matches[0] + 4 + adj
+            results["GetMultipliedBitrate_Mulss_Nop7"] = config_off
+            tiers_used["GetMultipliedBitrate_Mulss_Nop7"] = "patched-fallback"
+            patched_fallbacks.append("GetMultipliedBitrate_Mulss_Nop7")
+            print(f"  [FALL] GetMultipliedBitrate_Mulss_Nop7{' ':15s} = 0x{config_off:X}  [patched mulss NOP]")
+
+    if "GetMultipliedBitrate_Entry_IdentityRet" not in results:
+        for entry_pat in ("8B C1 C3", "89 C8 48"):
+            pat = Signature._parse(entry_pat)
+            matches = scan_pattern(data, pat, start=text_start, end=text_end)
+            if len(matches) == 1:
+                config_off = matches[0] + adj
+                results["GetMultipliedBitrate_Entry_IdentityRet"] = config_off
+                tiers_used["GetMultipliedBitrate_Entry_IdentityRet"] = "patched-fallback"
+                patched_fallbacks.append("GetMultipliedBitrate_Entry_IdentityRet")
+                print(f"  [FALL] GetMultipliedBitrate_Entry_IdentityRet{' ':10s} = 0x{config_off:X}  [identity/patched entry]")
+                break
+
+    if "hp_cutoff_Callback_InjectShellcode" not in results:
+        hp_key = "WebRtcSplHighPass_Dispatch_MovRet"
+        if hp_key not in results and "CommitAudioCodec_ChannelCount_Imm02" in results:
+            results[hp_key] = results["CommitAudioCodec_ChannelCount_Imm02"] + 0xC275
         if hp_key in results:
             hp_file = results[hp_key] - adj
             if (0 <= hp_file and hp_file + 11 <= len(data) and
@@ -3050,16 +3723,16 @@ def _discover_offsets_impl(data, bin_info):
                 if fmt == 'pe' and bin_info:
                     hpc_config = hpc_va - bin_info['image_base']
                     if 0 < hpc_config < len(data):
-                        results["WebRtcHighpassCutoff_Injected"] = hpc_config
-                        tiers_used["WebRtcHighpassCutoff_Injected"] = "patched-stub-extract"
-                        patched_fallbacks.append("WebRtcHighpassCutoff_Injected")
-                        print(f"  [FALL] WebRtcHighpassCutoff_Injected{' ':23s} = 0x{hpc_config:X}  [from HP stub VA=0x{hpc_va:X}]")
+                        results["hp_cutoff_Callback_InjectShellcode"] = hpc_config
+                        tiers_used["hp_cutoff_Callback_InjectShellcode"] = "patched-stub-extract"
+                        patched_fallbacks.append("hp_cutoff_Callback_InjectShellcode")
+                        print(f"  [FALL] hp_cutoff_Callback_InjectShellcode{' ':23s} = 0x{hpc_config:X}  [from HP stub VA=0x{hpc_va:X}]")
                 elif fmt in ('elf', 'macho'):
                     if 0 < hpc_va < len(data) + adj:
-                        results["WebRtcHighpassCutoff_Injected"] = hpc_va
-                        tiers_used["WebRtcHighpassCutoff_Injected"] = "patched-stub-extract"
-                        patched_fallbacks.append("WebRtcHighpassCutoff_Injected")
-                        print(f"  [FALL] WebRtcHighpassCutoff_Injected{' ':23s} = 0x{hpc_va:X}  [from HP stub VA]")
+                        results["hp_cutoff_Callback_InjectShellcode"] = hpc_va
+                        tiers_used["hp_cutoff_Callback_InjectShellcode"] = "patched-stub-extract"
+                        patched_fallbacks.append("hp_cutoff_Callback_InjectShellcode")
+                        print(f"  [FALL] hp_cutoff_Callback_InjectShellcode{' ':23s} = 0x{hpc_va:X}  [from HP stub VA]")
 
     if patched_fallbacks:
         print(f"\n  NOTE: Binary appears already patched. Fallback used for: {', '.join(patched_fallbacks)}")
@@ -3152,12 +3825,12 @@ def _discover_offsets_impl(data, bin_info):
         print("  PHASE 2b: Heuristic Recovery")
         print("=" * 65)
 
-        if "OpusBitrate_Imul384k" in missing and "CodecProbe_ChannelCountPatch" in results:
-            anchor_file = results["CodecProbe_ChannelCountPatch"] - adj
+        if "ApplySettings_BitrateCalcLow_Channels_Mov248k" in missing and "CommitAudioCodec_ChannelCount_Imm02" in results:
+            anchor_file = results["CommitAudioCodec_ChannelCount_Imm02"] - adj
             config_off, reason = _find_emulate_bitrate_in_anchor_window(data, anchor_file, adj, window=0x2000)
-            if config_off is None and "SampleRate_Select48kNop" in results and "CodecProbe_ForceSuccessBranch" in results:
-                lo = min(anchor_file, results["SampleRate_Select48kNop"] - adj, results["CodecProbe_ForceSuccessBranch"] - adj)
-                hi = max(anchor_file, results["SampleRate_Select48kNop"] - adj, results["CodecProbe_ForceSuccessBranch"] - adj)
+            if config_off is None and "SelectSampleRate_Cmov48k_Nop3" in results and "CommitAudioCodec_SuccessBranch_Jmp" in results:
+                lo = min(anchor_file, results["SelectSampleRate_Cmov48k_Nop3"] - adj, results["CommitAudioCodec_SuccessBranch_Jmp"] - adj)
+                hi = max(anchor_file, results["SelectSampleRate_Cmov48k_Nop3"] - adj, results["CommitAudioCodec_SuccessBranch_Jmp"] - adj)
                 mid = (lo + hi) // 2
                 config_off, reason = _find_emulate_bitrate_in_anchor_window(
                     data, mid, adj, window=(hi - lo) // 2 + 0x2000
@@ -3172,14 +3845,14 @@ def _discover_offsets_impl(data, bin_info):
                 ebm_file = config_off - adj
                 dist = abs(ebm_file - anchor_file)
                 if dist > 0x20000:
-                    print(f"  [REJECT] OpusBitrate_Imul384k @ 0x{config_off:X} — too far from anchor (0x{dist:X} > 0x20000), skipping")
+                    print(f"  [REJECT] ApplySettings_BitrateCalcLow_Channels_Mov248k @ 0x{config_off:X} - too far from anchor (0x{dist:X} > 0x20000), skipping")
                     config_off = None
                 else:
                     tag = "FULL-TEXT" if "full-text-scan" in reason else "ANCHOR"
-                    print(f"  [{tag}] OpusBitrate_Imul384k    = 0x{config_off:X}  "
+                    print(f"  [{tag}] ApplySettings_BitrateCalcLow_Channels_Mov248k    = 0x{config_off:X}  "
                           f"[{reason}]  (distance from ApplySettings anchor: 0x{dist:X})")
-                    results["OpusBitrate_Imul384k"] = config_off
-                    tiers_used["OpusBitrate_Imul384k"] = reason
+                    results["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = config_off
+                    tiers_used["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = reason
                     missing = _missing_discovered(results, fmt)
 
         hints = _run_heuristic_scan(data, missing, adj, text_start, text_end)
@@ -3189,11 +3862,11 @@ def _discover_offsets_impl(data, bin_info):
             for name, file_off, reason in hints:
                 if name in results:
                     continue
-                if name == "OpusBitrate_Imul384k" and "CodecProbe_ChannelCountPatch" in results:
-                    anchor_file = results["CodecProbe_ChannelCountPatch"] - adj
+                if name == "ApplySettings_BitrateCalcLow_Channels_Mov248k" and "CommitAudioCodec_ChannelCount_Imm02" in results:
+                    anchor_file = results["CommitAudioCodec_ChannelCount_Imm02"] - adj
                     if abs(file_off - anchor_file) > EMULATE_BITRATE_MAX_DISTANCE:
                         ebm_far_candidates.append((file_off, reason))
-                        print(f"  [HEUR] Rejected {name} @ 0x{file_off + adj:X} — too far from CodecProbe_ChannelCountPatch (delta 0x{abs(file_off - anchor_file):X} > 0x{EMULATE_BITRATE_MAX_DISTANCE:X})")
+                        print(f"  [HEUR] Rejected {name} @ 0x{file_off + adj:X} - too far from CommitAudioCodec_ChannelCount_Imm02 (delta 0x{abs(file_off - anchor_file):X} > 0x{EMULATE_BITRATE_MAX_DISTANCE:X})")
                         continue
                 config_off = file_off + adj
                 _exp_map = _build_expected_map(fmt)
@@ -3208,8 +3881,8 @@ def _discover_offsets_impl(data, bin_info):
                 results[name] = config_off
                 tiers_used[name] = f"heuristic({reason})"
 
-        if "OpusBitrate_Imul384k" not in results and ebm_far_candidates and fmt == "macho" and "CodecProbe_ChannelCountPatch" in results:
-            anchor_file = results["CodecProbe_ChannelCountPatch"] - adj
+        if "ApplySettings_BitrateCalcLow_Channels_Mov248k" not in results and ebm_far_candidates and fmt == "macho" and "CommitAudioCodec_ChannelCount_Imm02" in results:
+            anchor_file = results["CommitAudioCodec_ChannelCount_Imm02"] - adj
             expected_32000 = bytes.fromhex("007D00")
             valid = []
             for file_off, reason in ebm_far_candidates:
@@ -3219,9 +3892,9 @@ def _discover_offsets_impl(data, bin_info):
                 valid.sort(key=lambda x: x[1])
                 file_off = valid[0][0]
                 config_off = file_off + adj
-                results["OpusBitrate_Imul384k"] = config_off
-                tiers_used["OpusBitrate_Imul384k"] = "fallback-far(imul 32000,closest-to-anchor)"
-                print(f"  [FALLBACK-FAR] OpusBitrate_Imul384k = 0x{config_off:X}  (no in-window candidate; using closest imul 32000 — VERIFY bitrate after patch)")
+                results["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = config_off
+                tiers_used["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = "fallback-far(imul 32000,closest-to-anchor)"
+                print(f"  [FALLBACK-FAR] ApplySettings_BitrateCalcLow_Channels_Mov248k = 0x{config_off:X}  (no in-window candidate; using closest imul 32000 - VERIFY bitrate after patch)")
                 missing = _missing_discovered(results, fmt)
 
         if not hints:
@@ -3231,6 +3904,7 @@ def _discover_offsets_impl(data, bin_info):
 
     if fmt == "pe" and bin_info:
         _discover_windows_extended_offsets_pe(data, bin_info, results, tiers_used, text_start, text_end)
+        _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_start, text_end)
 
     validation_failures = _validate_discovered_offsets(results, data, adj)
     for name, reason in validation_failures:
@@ -3259,63 +3933,91 @@ def _discover_offsets_impl(data, bin_info):
 # region Validation
 
 EXPECTED_ORIGINALS = {
-    "CodecProbe_ChannelCountPatch":    ("01", 1),
-    "CodecProbe_ForceSuccessBranch":    ("75", 1),
-    "SampleRate_Select48kNop":             ("0F 42 C1", 3),
-    "OpusBitrate_Imul384k":   (None, 3),
-    "AudioEncoder_BitrateMovImm":  (None, 5),
-    "AudioEncoder_BitrateOrMaskNop":     ("48 09 C1", 3),
-    "WebRtcHighpass_Trampoline":           (None, 11),
-    "AudioFrame_StereoChannelAssign":   (None, 4),
-    "OpusEncoderConfig_SetStereoChannels": ("01", 1),
-    "OpusEncoderConfig_IsOkRetTrue": ("8B 11 31 C0", 4),
-    "DownmixMono_BypassBranch":            ("84 C0", 2),
-    "AudioEncoderCodec_ThrowNoOp":               ("41", 1),
-    "ChannelDownmix_RetStub":              ("41", 1),
-    "WebRtcHighpassCutoff_Injected":     (None, 0x100),
-    "WebRtcDcReject_Injected":                 (None, 0x1B6),
-    "OpusEncoderConfig_CtorBitrate_A":       ("00 7D 00 00", 4),
-    "OpusEncoderConfig_CtorBitrate_B":       ("00 7D 00 00", 4),
-    "OpusEncoderConfig_CtorUseInbandFecOn":   ("00", 1),
-    "NetEq_DelayMsPerLossPercent": ("48 B8 14 00 00 00 C8 00 00 00", 10),
-    "Pacer_ForceBlockAudioFalse": ("0F 94 C3", 3),
+    "CommitAudioCodec_ChannelCount_Imm02":    ("01", 1),
+    "CommitAudioCodec_SuccessBranch_Jmp":    ("75", 1),
+    "SelectSampleRate_Cmov48k_Nop3":             ("0F 42 C1", 3),
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k":   (None, 6),
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k":   (None, 6),
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k":  (None, 6),
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k":  (None, 6),
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k":  (None, 6),
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k": (None, 6),
+    "SetBitrateClamp_Max248k_Cmp": ("81 FB", 2),
+    "SetBitrateClamp_Max248k_Mov": ("B8", 1),
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k": (None, 7),
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k": (None, 7),
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k": (None, 7),
+    "GetMultipliedBitrate_Entry_IdentityRet": ("89 C8", 2),
+    "SetTargetBitrate_ClampMax248k_Cmp": ("81 FA", 2),
+    "SetTargetBitrate_ClampMax248k_Mov": ("BA", 1),
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp": ("81 FB", 2),
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov": ("B8", 1),
+    "EncoderOpusImpl_RelayClamp248k_Cmp": ("3D", 1),
+    "EncoderOpusImpl_RelayClamp248k_Mov": ("BF", 1),
+    "SetBitrate_Imm64_Imm248k":  (None, 5),
+    "SetBitrate_OrMask_Nop3":     ("48 09 C1", 3),
+    "SetTargetBitrate_Mulss_Nop6": ("F3 0F 59 44 81 EC", 6),
+    "GetMultipliedBitrate_Mulss_Nop7": ("F3 41 0F 59 44 88 EC", 7),
+    "WebRtcSplHighPass_Dispatch_MovRet":           (None, 11),
+    "CreateAudioFrame_ChannelAssign_Mov":   (None, 4),
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": ("01", 1),
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": ("8B 11 31 C0", 4),
+    "CapturedAudioProcessor_MonoDownmix_NopJmp":            ("84 C0", 2),
+    "CodecMismatchThrow_Entry_Ret":               ("41", 1),
+    "ChannelDownmix_Entry_Ret":              ("41", 1),
+    "hp_cutoff_Callback_InjectShellcode":     (None, 0x100),
+    "dc_reject_Callback_InjectShellcode":                 (None, 0x1B6),
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k":       ("00 7D 00 00", 4),
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k":       ("00 7D 00 00", 4),
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10":       ("14", 1),
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio":  ("01", 1),
+    "RecreateEncoderInstance_FecBranch_Jmp":    ("75", 1),
+    "MultiChannelRecreateEncoder_FecBranch_Jmp": ("75", 1),
+    "SetFec_EnableBranch_Jmp":                ("74", 1),
+    "RecreateEncoderInstance_DtxBranch_Jmp":    ("75", 1),
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp": ("75", 1),
+    "SetDtx_EnableBranch_Jmp":                ("74", 1),
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear":            ("0F 84", 2),
+    "NetEqDelayManager_MsPerLoss_Imm0": ("48 B8 14 00 00 00 C8 00 00 00", 10),
+    "PacerBlockAudio_Flag_XorFalse": ("0F 94 C3", 3),
 }
 
 EXPECTED_ORIGINALS_CLANG = {
-    "ChannelDownmix_RetStub":              ("55", 1),
-    "OpusEncoderConfig_IsOkRetTrue": ("55 48 89 E5", 4),
-    "SampleRate_Select48kNop":             (None, 4),
-    "OpusBitrate_Imul384k":   ("00 7D 00", 3),
-    "WebRtcHighpassCutoff_Injected":     (None, 0x100),
-    "WebRtcDcReject_Injected":                 (None, 0x1B6),
+    "ChannelDownmix_Entry_Ret":              ("55", 1),
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": ("55 48 89 E5", 4),
+    "SelectSampleRate_Cmov48k_Nop3":             (None, 4),
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k":   ("69 E8", 2),
+    "GetMultipliedBitrate_Mulss_Nop7": ("F3 0F 59 44 81 EC", 6),
+    "hp_cutoff_Callback_InjectShellcode":     (None, 0x100),
+    "dc_reject_Callback_InjectShellcode":                 (None, 0x1B6),
 }
 
 EXPECTED_ORIGINALS_LINUX_ONLY = {
-    "CodecProbe_ChannelCountPatch":    ("00", 1),
-    "CodecProbe_ForceSuccessBranch":    ("74", 1),
-    "AudioFrame_StereoChannelAssign":   ("4C 0F 43", 4),
-    "SampleRate_Select48kNop":             ("48 0F 43 D0", 4),
+    "CommitAudioCodec_ChannelCount_Imm02":    ("00", 1),
+    "CommitAudioCodec_SuccessBranch_Jmp":    ("74", 1),
+    "CreateAudioFrame_ChannelAssign_Mov":   ("4C 0F 43", 4),
+    "SelectSampleRate_Cmov48k_Nop3":             ("48 0F 43 D0", 4),
     "OpusEncoderConfig_SetMultiChannelStereo": ("01", 1),
 }
 
 EXPECTED_ORIGINALS_MACHO_ONLY = {
-    "AudioEncoderCodec_ThrowNoOp":               ("55", 1),
-    "AudioFrame_StereoChannelAssign":   ("4C 0F 43 E0", 4),
-    "CodecProbe_ForceSuccessBranch":    (None, 1),
-    "SampleRate_Select48kNop":             (None, 4),
+    "CodecMismatchThrow_Entry_Ret":               ("55", 1),
+    "CreateAudioFrame_ChannelAssign_Mov":   ("4C 0F 43 E0", 4),
+    "CommitAudioCodec_SuccessBranch_Jmp":    (None, 1),
+    "SelectSampleRate_Cmov48k_Nop3":             (None, 4),
 }
 
 EXPECTED_ORIGINALS_ARM64 = {
-    "AudioEncoderCodec_ThrowNoOp":               (None, 4),
-    "ChannelDownmix_RetStub":              (None, 4),
-    "WebRtcHighpassCutoff_Injected":     (None, 4),
-    "WebRtcDcReject_Injected":                 (None, 4),
-    "WebRtcHighpass_Trampoline":           (None, 4),
-    "OpusEncoderConfig_SetStereoChannels": (None, 4),
-    "AudioFrame_StereoChannelAssign":   (None, 4),
-    "CodecProbe_ChannelCountPatch":    (None, 4),
-    "DownmixMono_BypassBranch":            (None, 4),
-    "OpusEncoderConfig_CtorBitrate_B":       (None, 4),
+    "CodecMismatchThrow_Entry_Ret":               (None, 4),
+    "ChannelDownmix_Entry_Ret":              (None, 4),
+    "hp_cutoff_Callback_InjectShellcode":     (None, 4),
+    "dc_reject_Callback_InjectShellcode":                 (None, 4),
+    "WebRtcSplHighPass_Dispatch_MovRet":           (None, 4),
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": (None, 4),
+    "CreateAudioFrame_ChannelAssign_Mov":   (None, 4),
+    "CommitAudioCodec_ChannelCount_Imm02":    (None, 4),
+    "CapturedAudioProcessor_MonoDownmix_NopJmp":            (None, 4),
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k":       (None, 4),
 }
 
 
@@ -3332,27 +4034,54 @@ def _build_expected_map(fmt, arch=None):
     return m
 
 PATCH_INFO = {
-    "CodecProbe_ChannelCountPatch":    ("02", "Channel count 1->2"),
-    "CodecProbe_ForceSuccessBranch":    ("EB", "PE: EB on short jcc. ELF: 6x NOP on jz/jnz rel32 (see discord_voice_patcher_linux.sh)"),
-    "SampleRate_Select48kNop":             ("90 90 90", "cmovb->NOPs (force 48kHz)"),
-    "OpusBitrate_Imul384k":   (BITRATE_PATCH_3, "imul 32000->384000 bps"),
-    "AudioEncoder_BitrateMovImm":  (BITRATE_PATCH_5, "384000 in imm64"),
-    "AudioEncoder_BitrateOrMaskNop":     ("90 90 90", "or rcx,rax->NOPs"),
-    "WebRtcHighpass_Trampoline":           ("<dynamic: mov rax, IMAGE_BASE+HPC; ret>", "Redirect to HPC"),
-    "AudioFrame_StereoChannelAssign":   ("49 89 C4 90", "Clang ELF: cmovnb r12,rax -> mov r12,rax; nop (PE/MSVC uses 49 89 C5 90 / r13)"),
-    "OpusEncoderConfig_SetStereoChannels": ("02", "Channel count 1->2"),
+    "CommitAudioCodec_ChannelCount_Imm02":    ("02", "Channel count 1->2"),
+    "CommitAudioCodec_SuccessBranch_Jmp":    ("EB", "PE: EB on short jcc. ELF: 6x NOP on jz/jnz rel32 (see discord_voice_patcher_linux.sh)"),
+    "SelectSampleRate_Cmov48k_Nop3":             ("90 90 90", "cmovb->NOPs (force 48kHz)"),
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k":   (FLAT_EBP248K_PATCH, "imul ebp,eax tier -> mov ebp 248k flat"),
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k":   (FLAT_EBP248K_PATCH, "imul ebp,eax tier -> mov ebp 248k flat"),
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k":  (FLAT_EBP248K_PATCH, "imul ebp,eax tier -> mov ebp 248k flat"),
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k":  (FLAT_EBP248K_PATCH, "imul ebp,eax tier -> mov ebp 248k flat"),
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k":  (FLAT_EBP248K_PATCH, "imul ebp,eax tier -> mov ebp 248k flat"),
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k": (FLAT_EBP248K_PATCH, "imul ebp,eax tier -> mov ebp 248k flat"),
+    "SetBitrateClamp_Max248k_Cmp": ("81 FB C0 C8 03 00", "max clamp cmp 510k->248k"),
+    "SetBitrateClamp_Max248k_Mov": ("B8 C0 C8 03 00", "max clamp mov 510k->248k"),
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k": (FLAT_R8D248K_PATCH, "imul r8d,eax tier -> mov r8d 248k flat"),
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k": (FLAT_R8D248K_PATCH, "imul r8d,eax tier -> mov r8d 248k flat"),
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k": (FLAT_R8D248K_PATCH, "imul r8d,eax tier -> mov r8d 248k flat"),
+    "GetMultipliedBitrate_Entry_IdentityRet": ("8B C1 C3", "GetMultipliedBitrate -> identity ret"),
+    "SetTargetBitrate_ClampMax248k_Cmp": ("81 FA C0 C8 03 00", "SetTargetBitrate max cmp 510k->248k"),
+    "SetTargetBitrate_ClampMax248k_Mov": ("BA C0 C8 03 00", "SetTargetBitrate max mov 510k->248k"),
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp": ("81 FB C0 C8 03 00", "ApplySettings maxavg cmp 510k->248k"),
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov": ("B8 C0 C8 03 00", "ApplySettings maxavg mov 510k->248k"),
+    "EncoderOpusImpl_RelayClamp248k_Cmp": ("3D C0 C8 03 00", "relay cmp 510k->248k"),
+    "EncoderOpusImpl_RelayClamp248k_Mov": ("BF C0 C8 03 00", "relay mov 510k->248k"),
+    "SetBitrate_Imm64_Imm248k":  (BITRATE_PATCH_5, "248000 in imm64"),
+    "SetBitrate_OrMask_Nop3":     ("90 90 90", "or rcx,rax->NOPs"),
+    "SetTargetBitrate_Mulss_Nop6": ("90 90 90 90 90 90", "mulss->NOP"),
+    "GetMultipliedBitrate_Mulss_Nop7": ("90 90 90 90 90 90 90", "mulss->NOP"),
+    "WebRtcSplHighPass_Dispatch_MovRet":           ("<dynamic: mov rax, IMAGE_BASE+HPC; ret>", "Redirect to HPC"),
+    "CreateAudioFrame_ChannelAssign_Mov":   ("49 89 C4 90", "Clang ELF: cmovnb r12,rax -> mov r12,rax; nop (PE/MSVC uses 49 89 C5 90 / r13)"),
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": ("02", "Channel count 1->2"),
     "OpusEncoderConfig_SetMultiChannelStereo": ("02", "MultiChannel Opus config channels 1->2 (Linux)"),
-    "OpusEncoderConfig_IsOkRetTrue": ("48 C7 C0 01 00 00 00 C3", "return 1"),
-    "DownmixMono_BypassBranch":            ("90 90 90 90 90 90 90 90 90 90 90 90 E9", "NOP sled + jmp"),
-    "AudioEncoderCodec_ThrowNoOp":               ("C3", "ret (disable throws)"),
-    "ChannelDownmix_RetStub":              ("C3", "ret (disable downmix)"),
-    "WebRtcHighpassCutoff_Injected":     ("<injected: hp_cutoff>", "Custom HP cutoff + gain"),
-    "WebRtcDcReject_Injected":                 ("<injected: dc_reject>", "Custom DC reject + gain"),
-    "OpusEncoderConfig_CtorBitrate_A":       (BITRATE_PATCH_4, "Config qword: 32000->384000"),
-    "OpusEncoderConfig_CtorBitrate_B":       (BITRATE_PATCH_4, "Config qword: 32000->384000"),
-    "OpusEncoderConfig_CtorUseInbandFecOn":   ("01", "AudioEncoderOpusConfig ctor: use_inband_fec imm 0->1"),
-    "NetEq_DelayMsPerLossPercent": ("48 B8 00 00 00 00 00 00 00 00", "imm64 -> 0"),
-    "Pacer_ForceBlockAudioFalse": ("30 DB 90", "setz bl -> xor bl,bl; nop"),
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": ("48 C7 C0 01 00 00 00 C3", "return 1"),
+    "CapturedAudioProcessor_MonoDownmix_NopJmp":            ("90 90 90 90 90 90 90 90 90 90 90 90 E9", "NOP sled + jmp"),
+    "CodecMismatchThrow_Entry_Ret":               ("C3", "ret (disable throws)"),
+    "ChannelDownmix_Entry_Ret":              ("C3", "ret (disable downmix)"),
+    "hp_cutoff_Callback_InjectShellcode":     ("<injected: hp_cutoff>", "Custom HP cutoff + gain"),
+    "dc_reject_Callback_InjectShellcode":                 ("<injected: dc_reject>", "Custom DC reject + gain"),
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k":       (BITRATE_PATCH_4, "Config qword: 32000->248000"),
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k":       (BITRATE_PATCH_4, "Config qword: 32000->248000"),
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10":       ("0A", "Opus config ctor frame_size_ms 20->10"),
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio":  ("01", "Opus config ctor application kAudio"),
+    "RecreateEncoderInstance_FecBranch_Jmp":    ("EB", "RecreateEncoderInstance: jnz EnableFec -> jmp DisableFec"),
+    "MultiChannelRecreateEncoder_FecBranch_Jmp": ("EB", "MultiChannel RecreateEncoder: jnz EnableFec -> jmp DisableFec"),
+    "SetFec_EnableBranch_Jmp":                ("EB", "AudioEncoderOpusImpl::SetFec: jz EnableFec -> jmp DisableFec"),
+    "RecreateEncoderInstance_DtxBranch_Jmp":    ("EB", "RecreateEncoderInstance: jnz EnableDtx -> jmp DisableDtx"),
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp": ("EB", "MultiChannel Recreate: jnz EnableDtx -> jmp DisableDtx"),
+    "SetDtx_EnableBranch_Jmp":                ("EB", "AudioEncoderOpusImpl::SetDtx: jz -> jmp DisableDtx"),
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear":            ("E9", "AudioEncoderCopyRed::EncodeImpl skip RED (JZ near->JMP near)"),
+    "NetEqDelayManager_MsPerLoss_Imm0": ("48 B8 00 00 00 00 00 00 00 00", "imm64 -> 0"),
+    "PacerBlockAudio_Flag_XorFalse": ("30 DB 90", "setz bl -> xor bl,bl; nop"),
 }
 
 
@@ -3378,7 +4107,7 @@ def validate_offsets(data, results, adj, bin_fmt='pe'):
             expected_hex, length = expected_map[name]
             actual = data[file_off:file_off+length]
 
-            if name == "CodecProbe_ForceSuccessBranch" and bin_fmt == "elf":
+            if name == "CommitAudioCodec_SuccessBranch_Jmp" and bin_fmt == "elf":
                 peek = data[file_off : min(file_off + 6, len(data))]
                 if len(peek) >= 1 and peek[0] in (0x74, 0x75):
                     print(f"  [PASS] {name:45s} original bytes: {peek[:1].hex(' ')} (short jcc)")
@@ -3400,7 +4129,7 @@ def validate_offsets(data, results, adj, bin_fmt='pe'):
                     verified += 1
                 else:
                     patch_hex = PATCH_INFO.get(name, (None,))[0]
-                    if name == "SampleRate_Select48kNop" and bin_fmt == "elf":
+                    if name == "SelectSampleRate_Cmov48k_Nop3" and bin_fmt == "elf":
                         patch_hex = "90 90 90 90"
                     if patch_hex and not patch_hex.startswith('<'):
                         try:
@@ -3425,7 +4154,7 @@ def check_injection_sites(data, results, adj):
     print("  PHASE 4: Injection Site Capacity")
     print("=" * 65)
 
-    for name, inject_size, desc in [("WebRtcHighpassCutoff_Injected", 0x100, "hp_cutoff"), ("WebRtcDcReject_Injected", 0x1B6, "dc_reject")]:
+    for name, inject_size, desc in [("hp_cutoff_Callback_InjectShellcode", 0x100, "hp_cutoff"), ("dc_reject_Callback_InjectShellcode", 0x1B6, "dc_reject")]:
         if name not in results:
             print(f"  [SKIP] {name}: not found")
             continue
@@ -3802,50 +4531,77 @@ def format_windows_patcher_block(results, bin_info, file_path, file_size, discor
 
 PATCHER_DEBUG_GROUPS = {
     "STEREO": [
-        ("CodecProbe_ChannelCountPatch", "LocalUser::CommitAudioCodec / ApplySettings (channel 1->2)"),
-        ("CodecProbe_ForceSuccessBranch", "LocalUser::CommitAudioCodec / ApplySettings (force success jmp)"),
-        ("AudioFrame_StereoChannelAssign", "EngineAudioTransport::CreateAudioFrameToProcess"),
-        ("OpusEncoderConfig_SetStereoChannels", "webrtc::AudioEncoderOpusConfig ctor (ch 1->2)"),
-        ("DownmixMono_BypassBranch", "CapturedAudioProcessor::Process (bypass mono path)"),
+        ("CommitAudioCodec_ChannelCount_Imm02", "LocalUser::CommitAudioCodec / ApplySettings (channel 1->2)"),
+        ("CommitAudioCodec_SuccessBranch_Jmp", "LocalUser::CommitAudioCodec / ApplySettings (force success jmp)"),
+        ("CreateAudioFrame_ChannelAssign_Mov", "EngineAudioTransport::CreateAudioFrameToProcess"),
+        ("AudioEncoderOpusConfig_Ctor_Channels_Imm02", "webrtc::AudioEncoderOpusConfig ctor (ch 1->2)"),
+        ("CapturedAudioProcessor_MonoDownmix_NopJmp", "CapturedAudioProcessor::Process (bypass mono path)"),
     ],
     "BITRATE": [
-        ("OpusBitrate_Imul384k", "OpusBitrate_Imul384k (384kbps)"),
-        ("AudioEncoder_BitrateMovImm", "AudioEncoder_BitrateMovImm (384kbps)"),
-        ("AudioEncoder_BitrateOrMaskNop", "AudioEncoder_BitrateOrMaskNop (NOP)"),
+        ("ApplySettings_BitrateCalcLow_Channels_Mov248k", "ApplySettings tier-low -> mov ebp 248k flat"),
+        ("ApplySettings_BitrateCalcMid_Channels_Mov248k", "ApplySettings tier-mid -> mov ebp 248k flat"),
+        ("ApplySettings_BitrateCalcHigh_Channels_Mov248k", "ApplySettings tier-high -> mov ebp 248k flat"),
+        ("RecreateEncoder_BitrateCalcLow_Channels_Mov248k", "RecreateEncoder tier-low -> mov ebp 248k flat"),
+        ("RecreateEncoder_BitrateCalcMid_Channels_Mov248k", "RecreateEncoder tier-mid -> mov ebp 248k flat"),
+        ("RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", "RecreateEncoder tier-high -> mov ebp 248k flat"),
+        ("SetBitrateClamp_Max248k_Cmp", "RecreateEncoder max clamp cmp 510k->248k"),
+        ("SetBitrateClamp_Max248k_Mov", "RecreateEncoder max clamp mov 510k->248k"),
+        ("AudioBitrateAdaptorCalc32k_Channels_Mov248k", "AudioBitrateAdaptor tier32k -> mov r8d 248k flat"),
+        ("AudioBitrateAdaptorCalc48k_Channels_Mov248k", "AudioBitrateAdaptor tier48k -> mov r8d 248k flat"),
+        ("AudioBitrateAdaptorCalc60k_Channels_Mov248k", "AudioBitrateAdaptor tier60k -> mov r8d 248k flat"),
+        ("SetBitrate_Imm64_Imm248k", "SetBitrate imm64 -> 248k"),
+        ("SetBitrate_OrMask_Nop3", "SetBitrate or-mask NOP"),
+        ("SetTargetBitrate_Mulss_Nop6", "SetTargetBitrate mulss NOP"),
+        ("GetMultipliedBitrate_Mulss_Nop7", "GetMultipliedBitrate mulss NOP"),
+        ("GetMultipliedBitrate_Entry_IdentityRet", "GetMultipliedBitrate identity ret"),
+        ("SetTargetBitrate_ClampMax248k_Cmp", "SetTargetBitrate max clamp cmp 510k->248k"),
+        ("SetTargetBitrate_ClampMax248k_Mov", "SetTargetBitrate max clamp mov 510k->248k"),
+        ("ApplySettings_MaxAvgBitrateClamp248k_Cmp", "ApplySettings maxavg clamp cmp 510k->248k"),
+        ("ApplySettings_MaxAvgBitrateClamp248k_Mov", "ApplySettings maxavg clamp mov 510k->248k"),
+        ("EncoderOpusImpl_RelayClamp248k_Cmp", "EncoderOpusImpl relay clamp cmp 510k->248k"),
+        ("EncoderOpusImpl_RelayClamp248k_Mov", "EncoderOpusImpl relay clamp mov 510k->248k"),
     ],
     "SAMPLERATE": [
-        ("SampleRate_Select48kNop", "SampleRate_Select48kNop (NOP cmovb)"),
+        ("SelectSampleRate_Cmov48k_Nop3", "SelectSampleRate_Cmov48k_Nop3 (NOP cmovb)"),
     ],
     "FILTER": [
-        ("WebRtcHighpass_Trampoline", "WebRtcHighpass_Trampoline (RET stub)"),
-        ("WebRtcHighpassCutoff_Injected", "WebRtcHighpassCutoff_Injected (inject hp_cutoff)"),
-        ("WebRtcDcReject_Injected", "WebRtcDcReject_Injected (inject dc_reject)"),
-        ("ChannelDownmix_RetStub", "downmix_and_resample early RET"),
-        ("OpusEncoderConfig_IsOkRetTrue", "webrtc::AudioEncoderOpusConfig::IsOK (RET true)"),
-        ("AudioEncoderCodec_ThrowNoOp", "AudioEncoderCodec_ThrowNoOp (RET)"),
+        ("WebRtcSplHighPass_Dispatch_MovRet", "WebRtcSplHighPass_Dispatch_MovRet (RET stub)"),
+        ("hp_cutoff_Callback_InjectShellcode", "hp_cutoff_Callback_InjectShellcode (inject hp_cutoff)"),
+        ("dc_reject_Callback_InjectShellcode", "dc_reject_Callback_InjectShellcode (inject dc_reject)"),
+        ("ChannelDownmix_Entry_Ret", "downmix_and_resample early RET"),
+        ("AudioEncoderOpusConfig_IsOK_MovTrueRet", "webrtc::AudioEncoderOpusConfig::IsOK (RET true)"),
+        ("CodecMismatchThrow_Entry_Ret", "CodecMismatchThrow_Entry_Ret (RET)"),
     ],
     "ENCODER": [
-        ("OpusEncoderConfig_CtorBitrate_A", "OpusEncoderConfig ctor literal (32000->384000)"),
-        ("OpusEncoderConfig_CtorBitrate_B", "OpusEncoderConfig ctor literal (32000->384000)"),
+        ("AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k", "OpusEncoderConfig ctor literal (32000->248000)"),
+        ("AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k", "OpusEncoderConfig ctor literal (32000->248000)"),
     ],
     "FEC": [
-        ("OpusEncoderConfig_CtorUseInbandFecOn", "AudioEncoderOpusConfig ctor: default use_inband_fec -> 1 (Opus FEC)"),
+        ("AudioEncoderOpusConfig_Ctor_FrameMs_Imm10", "Opus config ctor frame_size_ms 20->10"),
+        ("AudioEncoderOpusConfig_Ctor_Application_ImmAudio", "Opus config ctor application kAudio (1)"),
+        ("RecreateEncoderInstance_FecBranch_Jmp", "RecreateEncoderInstance: force DisableFec (JMP)"),
+        ("MultiChannelRecreateEncoder_FecBranch_Jmp", "MultiChannel Recreate: force DisableFec (JMP)"),
+        ("SetFec_EnableBranch_Jmp", "AudioEncoderOpusImpl::SetFec: force DisableFec (JMP)"),
+        ("RecreateEncoderInstance_DtxBranch_Jmp", "RecreateEncoderInstance: force DisableDtx (JMP)"),
+        ("MultiChannelRecreateEncoder_DtxBranch_Jmp", "MultiChannel Recreate: force DisableDtx (JMP)"),
+        ("SetDtx_EnableBranch_Jmp", "AudioEncoderOpusImpl::SetDtx: force DisableDtx (JMP)"),
+        ("CopyRedEncodeImpl_RedundantCopy_JmpNear", "AudioEncoderCopyRed::EncodeImpl skip RED copy"),
     ],
     "NETEQ": [
-        ("NetEq_DelayMsPerLossPercent", "NetEq ms_per_loss_percent -> 0 (FEC friendly; no Opus loss-hint hacks)"),
+        ("NetEqDelayManager_MsPerLoss_Imm0", "NetEq ms_per_loss_percent -> 0 (optional; off by default)"),
     ],
     "PACING": [
-        ("Pacer_ForceBlockAudioFalse", "Pacer BlockAudio -> false"),
+        ("PacerBlockAudio_Flag_XorFalse", "Pacer BlockAudio -> false"),
     ],
     "DISCORD_API_LOCK": [
-        ("Discord_SetAutomaticGainControlConfig", "Discord::SetAutomaticGainControlConfig (AGC off)"),
-        ("Discord_SetAutomaticGainControl_bool", "Discord::SetAutomaticGainControl(bool) (AGC off)"),
-        ("Discord_SetNoiseSuppression_bool", "Discord::SetNoiseSuppression(bool) (NS off)"),
-        ("Discord_SetEchoCancellation_bool", "Discord::SetEchoCancellation(bool) (echo cancel off)"),
-        ("Discord_SetEchoCancellationPreEcho_bool", "Discord::SetEchoCancellationPreEcho (echo cancel off)"),
-        ("Discord_EnableBuiltInAcousticEchoCancel_bool", "Discord::EnableBuiltInAEC (acoustic echo off; not Opus FEC)"),
-        ("Discord_SetNoiseCancellation_bool", "Discord::SetNoiseCancellation (Krisp NC off)"),
-        ("Discord_SetNoiseCancellationDuringProcessing_bool", "Discord::SetNoiseCancellationDuringProcessing (Krisp NC off)"),
+        ("SetAutomaticGainControlConfig_Entry_Ret", "Discord::SetAutomaticGainControlConfig (AGC off)"),
+        ("SetAutomaticGainControl_Entry_Ret", "Discord::SetAutomaticGainControl(bool) (AGC off)"),
+        ("SetNoiseSuppression_Entry_Ret", "Discord::SetNoiseSuppression(bool) (NS off)"),
+        ("SetEchoCancellation_Entry_Ret", "Discord::SetEchoCancellation(bool) (echo cancel off)"),
+        ("SetEchoCancellationPreEcho_Entry_Ret", "Discord::SetEchoCancellationPreEcho (echo cancel off)"),
+        ("EnableBuiltInAEC_Entry_Ret", "Discord::EnableBuiltInAEC (acoustic echo off; not Opus FEC)"),
+        ("SetNoiseCancellation_Entry_Ret", "Discord::SetNoiseCancellation (Krisp NC off)"),
+        ("SetNoiseCancellationDuringProcessing_Entry_Ret", "Discord::SetNoiseCancellationDuringProcessing (Krisp NC off)"),
     ],
 }
 
@@ -3869,7 +4625,7 @@ def format_linux_patcher_block(results, bin_info, file_path, file_size):
     adj = bin_info.get('file_offset_adjustment', 0)
     md5 = _md5_file_hex(file_path, lower=True)
     lines = [
-        "# discord_voice_patcher_linux.sh — EXPECTED_* + OFFSET_* from finder",
+        "# discord_voice_patcher_linux.sh - EXPECTED_* + OFFSET_* from finder",
         f'EXPECTED_MD5="{md5}"',
         f"EXPECTED_SIZE={file_size}",
         "",
@@ -3887,7 +4643,7 @@ def format_linux_patcher_block(results, bin_info, file_path, file_size):
     extra = f"OFFSET_OpusEncoderConfig_SetMultiChannelStereo=0x{extra_val:X}"
     inserted = False
     for i, line in enumerate(lines):
-        if line.startswith("OFFSET_OpusEncoderConfig_SetStereoChannels="):
+        if line.startswith("OFFSET_AudioEncoderOpusConfig_Ctor_Channels_Imm02="):
             lines.insert(i + 1, extra)
             inserted = True
             break
@@ -3897,12 +4653,21 @@ def format_linux_patcher_block(results, bin_info, file_path, file_size):
     lines.append("")
     lines.append("# Required offset names (18 Windows + Linux MultiChannel); validate before build.")
     lines.append("REQUIRED_OFFSET_NAMES=(")
-    lines.append("    AudioFrame_StereoChannelAssign OpusEncoderConfig_SetStereoChannels OpusEncoderConfig_SetMultiChannelStereo DownmixMono_BypassBranch")
-    lines.append("    CodecProbe_ChannelCountPatch CodecProbe_ForceSuccessBranch OpusBitrate_Imul384k")
-    lines.append("    AudioEncoder_BitrateMovImm AudioEncoder_BitrateOrMaskNop SampleRate_Select48kNop")
-    lines.append("    WebRtcHighpass_Trampoline WebRtcHighpassCutoff_Injected WebRtcDcReject_Injected ChannelDownmix_RetStub")
-    lines.append("    OpusEncoderConfig_IsOkRetTrue AudioEncoderCodec_ThrowNoOp")
-    lines.append("    OpusEncoderConfig_CtorBitrate_A OpusEncoderConfig_CtorBitrate_B OpusEncoderConfig_CtorUseInbandFecOn")
+    lines.append("    CreateAudioFrame_ChannelAssign_Mov AudioEncoderOpusConfig_Ctor_Channels_Imm02 OpusEncoderConfig_SetMultiChannelStereo CapturedAudioProcessor_MonoDownmix_NopJmp")
+    lines.append("    CommitAudioCodec_ChannelCount_Imm02 CommitAudioCodec_SuccessBranch_Jmp")
+    lines.append("    ApplySettings_BitrateCalcLow_Channels_Mov248k ApplySettings_BitrateCalcMid_Channels_Mov248k ApplySettings_BitrateCalcHigh_Channels_Mov248k")
+    lines.append("    RecreateEncoder_BitrateCalcLow_Channels_Mov248k RecreateEncoder_BitrateCalcMid_Channels_Mov248k RecreateEncoder_BitrateCalcHigh_Channels_Mov248k")
+    lines.append("    SetBitrateClamp_Max248k_Cmp SetBitrateClamp_Max248k_Mov")
+    lines.append("    AudioBitrateAdaptorCalc32k_Channels_Mov248k AudioBitrateAdaptorCalc48k_Channels_Mov248k AudioBitrateAdaptorCalc60k_Channels_Mov248k")
+    lines.append("    SetBitrate_Imm64_Imm248k SetBitrate_OrMask_Nop3")
+    lines.append("    SetTargetBitrate_Mulss_Nop6 GetMultipliedBitrate_Mulss_Nop7 GetMultipliedBitrate_Entry_IdentityRet")
+    lines.append("    SetTargetBitrate_ClampMax248k_Cmp SetTargetBitrate_ClampMax248k_Mov")
+    lines.append("    ApplySettings_MaxAvgBitrateClamp248k_Cmp ApplySettings_MaxAvgBitrateClamp248k_Mov")
+    lines.append("    EncoderOpusImpl_RelayClamp248k_Cmp EncoderOpusImpl_RelayClamp248k_Mov")
+    lines.append("    SelectSampleRate_Cmov48k_Nop3")
+    lines.append("    WebRtcSplHighPass_Dispatch_MovRet hp_cutoff_Callback_InjectShellcode dc_reject_Callback_InjectShellcode ChannelDownmix_Entry_Ret")
+    lines.append("    AudioEncoderOpusConfig_IsOK_MovTrueRet CodecMismatchThrow_Entry_Ret")
+    lines.append("    AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 AudioEncoderOpusConfig_Ctor_Application_ImmAudio")
     lines.append(")")
     return "\n".join(lines) + "\n"
 
@@ -4006,7 +4771,7 @@ def format_json(results, bin_info, file_path, file_size, adj, tiers_used,
 
     if fmt in ('elf', 'macho'):
         inject = []
-        for name, size in [("WebRtcHighpassCutoff_Injected", 0x100), ("WebRtcDcReject_Injected", 0x1B6)]:
+        for name, size in [("hp_cutoff_Callback_InjectShellcode", 0x100), ("dc_reject_Callback_InjectShellcode", 0x1B6)]:
             if name in offsets_only:
                 file_off = offsets_only[name] - adj
                 inject.append({
@@ -4537,11 +5302,11 @@ def main():
                 print("    }")
 
             stub_line = ""
-            if fmt == 'pe' and bin_info and "WebRtcHighpassCutoff_Injected" in results:
-                hpc_va = bin_info['image_base'] + results["WebRtcHighpassCutoff_Injected"]
+            if fmt == 'pe' and bin_info and "hp_cutoff_Callback_InjectShellcode" in results:
+                hpc_va = bin_info['image_base'] + results["hp_cutoff_Callback_InjectShellcode"]
                 va_bytes = struct.pack('<Q', hpc_va)
                 stub = b'\x48\xB8' + va_bytes + b'\xC3'
-                stub_line = f"\n  WebRtcHighpass_Trampoline stub: {stub.hex(' ')}\n    mov rax, 0x{hpc_va:X}; ret"
+                stub_line = f"\n  WebRtcSplHighPass_Dispatch_MovRet stub: {stub.hex(' ')}\n    mov rax, 0x{hpc_va:X}; ret"
                 print(stub_line)
 
             script_dir = Path(__file__).resolve().parent

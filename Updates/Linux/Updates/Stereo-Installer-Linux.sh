@@ -1,32 +1,10 @@
 #!/usr/bin/env bash
-###############################################################################
-# DISCORD VOICE FIXER - Stereo Audio Module Installer (Linux)
-# Downloads and installs pre-patched stereo voice modules.
-# Usage: ./Stereo-Installer-Linux.sh [--silent] [--check] [--restore] [--help]
-# Made by: Oracle | Shaun | Hallow | Ascend | Sentry | Sikimzo | Cypher
-#
-# v2.2 (2026-04):
-#   * Switched module source to the Hub-style "Patched Nodes (for Installer)/Linux"
-#     folder under Updates/Nodes/ on the repo. Mirrors the encoding scheme used
-#     by STEREO_HUB/discord_stereo_hub.py so a single source of truth applies
-#     across the Hub GUI and this CLI installer.
-#   * Added optional GitHub auth (DISCORD_STEREO_GITHUB_TOKEN / GITHUB_TOKEN /
-#     GH_TOKEN) and a User-Agent on every request - silently lifts API rate
-#     limits from 60/hr to 5000/hr without changing default behavior.
-#   * Added an offline / local-bundle fallback: if the network call fails (or
-#     DISCORD_STEREO_SKIP_REMOTE=1 is set), the installer copies from
-#     ./Updates/Nodes/Patched Nodes (for Installer)/Linux/ next to this script
-#     when the repo is checked out locally - mirrors hub_data_dir() behavior.
-#   * Hardened per-file downloads: explicit --max-time for the ~100 MB .node,
-#     User-Agent + Accept headers, HTML-error-page detection on payloads.
-###############################################################################
 
 set -euo pipefail
 
 SCRIPT_VERSION="2.2"
 
 # region Configuration
-# With sudo, use invoking user's home for config/cache so we find their Discord.
 DETECT_HOME="${HOME:-}"
 if [[ -n "${SUDO_USER:-}" ]] && [[ "$(id -u 2>/dev/null)" -eq 0 ]]; then
     _dh=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)
@@ -34,34 +12,22 @@ if [[ -n "${SUDO_USER:-}" ]] && [[ "$(id -u 2>/dev/null)" -eq 0 ]]; then
 fi
 [[ -z "${DETECT_HOME:-}" ]] && DETECT_HOME="${HOME:-}"
 
-# Module source: pre-patched Linux discord_voice bundle.
-# Mirrors the URL scheme used by STEREO_HUB/discord_stereo_hub.py
-# (PATCHED_WINDOWS_GITHUB_CONTENTS_API) so the Hub GUI and this CLI installer
-# pull from the same canonical folder. Path is URL-encoded (spaces=%20,
-# parens=%28/%29, slashes=%2F) - GitHub's API accepts either form, but encoding
-# matches the Hub byte-for-byte for grep-ability.
-#   Browse:  https://github.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/tree/main/Updates/Nodes/Patched%20Nodes%20(for%20Installer)/Linux
 VOICE_BACKUP_API="https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FPatched%20Nodes%20%28for%20Installer%29%2FLinux"
 VOICE_BACKUP_API_REF="main"
 UPDATE_URL="https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Linux/Updates/Stereo-Installer-Linux.sh"
 
-# Local offline fallback (relative to this script) - same layout the Hub uses.
 LOCAL_PATCHED_BUNDLE_REL="Updates/Nodes/Patched Nodes (for Installer)/Linux"
 
-# Networking knobs (override via environment when needed)
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-15}"
-CURL_API_TIMEOUT="${CURL_API_TIMEOUT:-60}"      # GitHub contents listing
-CURL_FILE_TIMEOUT="${CURL_FILE_TIMEOUT:-600}"   # Per-file download (.node ~100 MB)
+CURL_API_TIMEOUT="${CURL_API_TIMEOUT:-60}"
+CURL_FILE_TIMEOUT="${CURL_FILE_TIMEOUT:-600}"
 INSTALLER_USER_AGENT="${INSTALLER_USER_AGENT:-DiscordStereoInstallerLinux/${SCRIPT_VERSION}}"
 
-# Optional GitHub token: lifts API rate limits from 60/hr -> 5000/hr.
-# Honors the same env var names the Hub and gh CLI accept (in priority order).
 _resolve_github_token() {
     local t="${DISCORD_STEREO_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
     [[ -n "$t" ]] && printf '%s' "$t"
 }
 
-# Build curl auth header args ("" when no token is set).
 _github_auth_args() {
     local tok scheme
     tok=$(_resolve_github_token || true)
@@ -202,13 +168,12 @@ banner() {
     echo ""
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${WHITE}${BOLD}Discord Voice Fixer${NC} - ${CYAN}Linux Installer v${SCRIPT_VERSION}${NC}"
-    echo -e "${DIM}48kHz | 384kbps | True Stereo | Filterless${NC}"
-    echo -e "${DIM}Oracle | Shaun | Hallow | Ascend | Sentry | Sikimzo | Cypher${NC}"
+    echo -e "${DIM}48kHz | 248kbps | True Stereo | Filterless${NC}"
+    echo -e "${DIM}Oracle | Shaun | Hallow | Ascend | Sikimzo | Cypher${NC}"
     echo -e "${CYAN}======================================================${NC}"
     echo ""
 }
 
-# --- Progress Bar ------------------------------------------------------------
 progress_bar() {
     local pct="$1" label="${2:-Working...}" width=40
     local filled=$(( pct * width / 100 ))
@@ -220,7 +185,6 @@ progress_bar() {
     if [[ "$pct" -ge 100 ]]; then echo ""; fi
 }
 
-# --- Dependency Check --------------------------------------------------------
 check_dependencies() {
     local missing=()
     command -v curl   &>/dev/null || missing+=("curl")
@@ -239,7 +203,6 @@ check_dependencies() {
     log_file "INFO" "Dependencies OK: curl, jq, md5sum"
 }
 
-# --- Settings Management -----------------------------------------------------
 load_settings() {
     if [[ -f "$SETTINGS_FILE" ]]; then
         AUTO_RESTART_DISCORD=$(jq -r '.AutoStartDiscord // true' "$SETTINGS_FILE" 2>/dev/null || echo "true")
@@ -258,7 +221,6 @@ save_settings() {
 EOF
 }
 
-# --- Disk Space Check --------------------------------------------------------
 get_available_space_mb() {
     local path="$1"
     df -BM "$path" 2>/dev/null | tail -1 | awk '{gsub(/M/,"",$4); print $4}' || echo "0"
@@ -275,7 +237,6 @@ check_disk_space() {
     return 0
 }
 
-# --- Discord Client Detection ------------------------------------------------
 declare -a CLIENT_NAMES=()
 declare -a CLIENT_PATHS=()
 declare -a CLIENT_APP_PATHS=()
@@ -285,7 +246,6 @@ declare -a CLIENT_PROCESS_NAMES=()
 declare -a CLIENT_NODE_HASHES=()
 declare -a CLIENT_NODE_SIZES=()
 
-# Search paths and labels (config paths use DETECT_HOME so sudo finds user's Discord)
 declare -a SEARCH_PATHS=(
     "$DETECT_HOME/.config/discord"
     "$DETECT_HOME/.config/discordcanary"
@@ -330,7 +290,6 @@ declare -a SEARCH_PROCESSES=(
 
 find_voice_module() {
     local base="$1"
-    # Pattern 1: Electron auto-update structure (config dir with app-*/modules/discord_voice/)
     local app_dirs
     app_dirs=$(find "$base" -maxdepth 1 -type d -name "app-*" 2>/dev/null | sort -V -r || true)
     if [[ -n "$app_dirs" ]]; then
@@ -351,7 +310,6 @@ find_voice_module() {
         done <<< "$app_dirs"
     fi
 
-    # Pattern 2: Direct search for discord_voice.node (maxdepth 10 for system installs)
     local node_file
     node_file=$(find "$base" -maxdepth 10 -name "discord_voice.node" -type f 2>/dev/null | head -1 || true)
     if [[ -n "$node_file" ]]; then
@@ -373,7 +331,6 @@ get_app_version() {
     fi
 }
 
-# Get .node file hash and size for a voice path
 get_node_info() {
     local voice_path="$1"
     local node_file
@@ -412,7 +369,6 @@ find_discord_clients() {
             local voice_path="${result%%|*}"
             local app_path="${result##*|}"
 
-            # Deduplicate by voice path
             local dup=false
             if [[ ${#found_voice_paths[@]} -gt 0 ]]; then
                 for fvp in "${found_voice_paths[@]}"; do
@@ -424,7 +380,6 @@ find_discord_clients() {
             local version
             version=$(get_app_version "$app_path")
 
-            # Get node file info
             local node_info hash size
             node_info=$(get_node_info "$voice_path")
             hash="${node_info%%|*}"
@@ -447,7 +402,6 @@ find_discord_clients() {
     return 0
 }
 
-# --- Process Management ------------------------------------------------------
 kill_discord() {
     local procs=("Discord" "DiscordCanary" "DiscordPTB" "DiscordDevelopment" "discord")
     local attempts=0 max_attempts=3
@@ -466,13 +420,11 @@ kill_discord() {
         fi
 
         if [[ $attempts -eq 0 ]]; then
-            # Graceful SIGTERM first
             for pname in "${procs[@]}"; do
                 pkill -f "$pname" 2>/dev/null || true
             done
             sleep 2
         else
-            # Force SIGKILL
             for pname in "${procs[@]}"; do
                 pkill -9 -f "$pname" 2>/dev/null || true
             done
@@ -482,7 +434,6 @@ kill_discord() {
         (( attempts++ )) || true
     done
 
-    # Final check
     for pname in "${procs[@]}"; do
         if pgrep -f "$pname" &>/dev/null; then
             status "  [!] Warning: Could not kill all Discord processes" orange
@@ -499,7 +450,6 @@ is_discord_running() {
 }
 
 start_discord() {
-    # Try common launch methods
     local launchers=(
         "discord"
         "discord-canary"
@@ -521,7 +471,6 @@ start_discord() {
         fi
     done
 
-    # Try flatpak
     if command -v flatpak &>/dev/null; then
         if flatpak list 2>/dev/null | grep -qi discord; then
             nohup flatpak run com.discordapp.Discord &>/dev/null &
@@ -532,7 +481,6 @@ start_discord() {
     return 1
 }
 
-# --- State Management --------------------------------------------------------
 ensure_app_dirs() {
     ensure_dir "$APP_DATA_ROOT"
     ensure_dir "$BACKUP_ROOT"
@@ -604,18 +552,15 @@ check_discord_updated() {
     echo "OK|$current_version|$last_date"
 }
 
-# --- Backup Validation ------------------------------------------------------
 backup_has_content() {
     local backup_path="$1"
     local voice_dir="$backup_path/voice_module"
     [[ -d "$voice_dir" ]] || return 1
 
-    # Check for critical files (.node or .so)
     local count
     count=$(find "$voice_dir" -type f \( -name "*.node" -o -name "*.so" -o -name "*.dll" \) 2>/dev/null | wc -l || echo "0")
     [[ $count -gt 0 ]] || return 1
 
-    # Check none are empty (0 bytes)
     local empty_count
     empty_count=$(find "$voice_dir" -type f \( -name "*.node" -o -name "*.so" \) -empty 2>/dev/null | wc -l || echo "0")
     if [[ $empty_count -gt 0 ]]; then
@@ -623,7 +568,6 @@ backup_has_content() {
         return 1
     fi
 
-    # Check .node file is reasonable size (>1KB)
     local node_file
     node_file=$(find "$voice_dir" -name "*.node" -type f 2>/dev/null | head -1 || true)
     if [[ -n "$node_file" ]]; then
@@ -641,7 +585,6 @@ backup_has_content() {
 validate_backup_integrity() {
     local backup_path="$1"
 
-    # Check metadata.json exists and is valid JSON
     local meta="$backup_path/metadata.json"
     if [[ ! -f "$meta" ]]; then
         echo "INVALID|Missing metadata.json"
@@ -668,7 +611,6 @@ validate_backup_integrity() {
     echo "VALID"
 }
 
-# --- Backup Management ------------------------------------------------------
 create_original_backup() {
     local voice_path="$1" client_name="$2" version="$3"
     local sname
@@ -676,7 +618,6 @@ create_original_backup() {
     local backup_path="$ORIGINAL_BACKUP_ROOT/$sname"
 
     if [[ -d "$backup_path" ]]; then
-        # Validate existing backup
         local validation
         validation=$(validate_backup_integrity "$backup_path")
         if [[ "${validation%%|*}" == "VALID" ]]; then
@@ -700,7 +641,6 @@ create_original_backup() {
         return 1
     fi
 
-    # Disk space check
     local needed_mb
     needed_mb=$(du -sm "$voice_path" 2>/dev/null | cut -f1 || echo "0")
     needed_mb=$(( needed_mb + 10 ))
@@ -750,7 +690,6 @@ create_voice_backup() {
     local backup_name="${sname}_${version}_${timestamp}"
     local backup_path="$BACKUP_ROOT/$backup_name"
 
-    # Ensure original backup exists first
     local orig_path="$ORIGINAL_BACKUP_ROOT/$sname"
     if [[ ! -d "$orig_path" ]]; then
         create_original_backup "$voice_path" "$client_name" "$version"
@@ -842,14 +781,12 @@ remove_old_backups() {
     done
 }
 
-# Clean up invalid/corrupted backups
 cleanup_invalid_backups() {
     local cleaned=0 total=0
 
     status "Scanning backups for corruption..." blue
     echo ""
 
-    # Check regular backups
     for dir in "$BACKUP_ROOT"/*/; do
         [[ -d "$dir" ]] || continue
         (( total++ )) || true
@@ -867,7 +804,6 @@ cleanup_invalid_backups() {
         fi
     done
 
-    # Check original backups
     for dir in "$ORIGINAL_BACKUP_ROOT"/*/; do
         [[ -d "$dir" ]] || continue
         (( total++ )) || true
@@ -896,7 +832,6 @@ cleanup_invalid_backups() {
 list_backups() {
     local idx=0
 
-    # Original backups
     for dir in "$ORIGINAL_BACKUP_ROOT"/*/; do
         [[ -d "$dir" ]] || continue
         local meta="$dir/metadata.json"
@@ -916,7 +851,6 @@ list_backups() {
         (( idx++ )) || true
     done
 
-    # Regular backups (newest first)
     while IFS= read -r dir; do
         [[ -d "$dir" ]] || continue
         local meta="$dir/metadata.json"
@@ -957,7 +891,6 @@ restore_from_backup() {
         status "  Restoring voice module..." cyan
     fi
 
-    # Clear target and copy
     if [[ -z "$target_voice_path" ]] || [[ "$target_voice_path" == "/" ]]; then
         status "[X] Invalid target path - aborting restore for safety" red
         return 1
@@ -983,10 +916,7 @@ restore_from_backup() {
     return 0
 }
 
-# --- Download Voice Backup Files ---------------------------------------------
 
-# Detect HTML/error payloads that GitHub serves on rate-limit / outage.
-# Mirrors validate_download_payload() in STEREO_HUB/discord_stereo_hub.py.
 _payload_looks_like_html() {
     local f="$1"
     [[ -f "$f" ]] || return 1
@@ -995,12 +925,9 @@ _payload_looks_like_html() {
     [[ "$head" == *"<!doctype html"* ]] || [[ "$head" == *"<html"* ]] || [[ "$head" == *"<title>"* ]]
 }
 
-# Locate a sibling local patched bundle (offline / development fallback).
-# Mirrors _local_patched_bundle_dir_for_platform() in the Hub.
 _local_patched_bundle_dir() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || return 1
-    # Walk up to 4 ancestors looking for a checkout containing the bundle.
     local d="$script_dir" i
     for (( i=0; i<5; i++ )); do
         if [[ -d "$d/$LOCAL_PATCHED_BUNDLE_REL" ]]; then
@@ -1015,7 +942,6 @@ _local_patched_bundle_dir() {
     return 1
 }
 
-# Copy local patched bundle to destination. Validates output looks reasonable.
 _copy_local_bundle_to() {
     local dest_path="$1" src
     src="$(_local_patched_bundle_dir)" || return 1
@@ -1029,7 +955,6 @@ _copy_local_bundle_to() {
     while IFS= read -r -d '' f; do
         local fname fsize
         fname="$(basename "$f")"
-        # Skip dotfiles / metadata
         [[ "$fname" == .* ]] && continue
         if cp -f "$f" "$dest_path/$fname" 2>/dev/null; then
             fsize=$(stat -c%s "$dest_path/$fname" 2>/dev/null || echo "0")
@@ -1043,7 +968,6 @@ _copy_local_bundle_to() {
         return 1
     fi
 
-    # Sanity: must contain a non-trivial .node
     local nodef
     nodef=$(find "$dest_path" -maxdepth 1 -name '*.node' -type f 2>/dev/null | head -1 || true)
     if [[ -z "$nodef" ]] || [[ "$(stat -c%s "$nodef" 2>/dev/null || echo 0)" -lt 1024 ]]; then
@@ -1061,13 +985,10 @@ _copy_local_bundle_to() {
     return 0
 }
 
-# Pull the patched module from GitHub. Falls back to local bundle if the
-# network round-trip fails or DISCORD_STEREO_SKIP_REMOTE=1.
 download_voice_files() {
     local dest_path="$1"
     local max_retries=3
 
-    # Offline / dev override - skip the network entirely.
     if [[ "${DISCORD_STEREO_SKIP_REMOTE:-0}" == "1" ]]; then
         status "  DISCORD_STEREO_SKIP_REMOTE=1 - using local bundle only" magenta
         if _copy_local_bundle_to "$dest_path"; then
@@ -1078,7 +999,6 @@ download_voice_files() {
         return 1
     fi
 
-    # Build optional GitHub auth header line(s) once.
     local _auth_hdr=""
     local _tok
     _tok=$(_resolve_github_token || true)
@@ -1100,7 +1020,6 @@ download_voice_files() {
         status "  Fetching file list from GitHub..." cyan
         log_file "INFO" "Download attempt $attempt: $VOICE_BACKUP_API"
 
-        # Build curl args (auth header is optional).
         local _curl_api=(
             curl -sS -w "\n%{http_code}" -L
             --connect-timeout "$CURL_CONNECT_TIMEOUT"
@@ -1121,7 +1040,6 @@ download_voice_files() {
             fi
             status "  [X] Failed to fetch file list after $max_retries attempts" red
             status "      Error: ${api_response:0:200}" dim
-            # Last-ditch: try the local bundle if available.
             if _copy_local_bundle_to "$dest_path"; then
                 status "  [OK] Recovered using local bundle" green
                 return 0
@@ -1129,14 +1047,12 @@ download_voice_files() {
             return 1
         fi
 
-        # Extract HTTP code from last line
         http_code="${api_response##*$'\n'}"
         api_response="${api_response%$'\n'*}"
 
         case "$http_code" in
             200) ;;
             403)
-                # Rate-limited. Could still be temporary - retry, then fall back.
                 status "  [X] GitHub API rate-limited (403)." orange
                 status "      Tip: set GITHUB_TOKEN to lift the 60/hr anonymous limit." yellow
                 if [[ $attempt -lt $max_retries ]]; then
@@ -1176,7 +1092,6 @@ download_voice_files() {
         local failed_files=()
         local total_bytes=0
 
-        # Parse JSON array of files
         local file_names file_urls file_sizes
         file_names=$(echo "$api_response" | jq -r '.[] | select(.type == "file") | .name'         2>/dev/null || true)
         file_urls=$( echo "$api_response" | jq -r '.[] | select(.type == "file") | .download_url' 2>/dev/null || true)
@@ -1206,8 +1121,6 @@ download_voice_files() {
                 -H "Cache-Control: no-cache"
                 -o "$fpath"
             )
-            # download_url is raw.githubusercontent (no auth needed) but token
-            # works there too and helps if rate-limited.
             [[ -n "$_auth_hdr" ]] && _curl_file+=( -H "$_auth_hdr" )
             _curl_file+=( "$furl" )
 
@@ -1230,7 +1143,6 @@ download_voice_files() {
                 fsize=$(stat -c%s "$fpath" 2>/dev/null || echo "0")
                 local ext="${fname##*.}"
 
-                # Binary assets must be at least 1 KiB
                 if [[ "$ext" == "node" || "$ext" == "so" || "$ext" == "tflite" || "$ext" == "dylib" ]]; then
                     if [[ $fsize -lt 1024 ]]; then
                         status "  [!] $fname seems too small ($fsize bytes)" orange
@@ -1240,7 +1152,6 @@ download_voice_files() {
                     fi
                 fi
 
-                # Verify against expected size from API
                 if [[ -n "$fexpected_size" ]] && [[ "$fexpected_size" != "null" ]] && [[ "$fexpected_size" -gt 0 ]]; then
                     if [[ "$fsize" -ne "$fexpected_size" ]]; then
                         status "  [!] Size mismatch: $fname (got $fsize, expected $fexpected_size)" orange
@@ -1297,7 +1208,6 @@ download_voice_files() {
         return 0
     done
 
-    # Final fallback after all retries exhausted.
     status "  [!] Network attempts exhausted - trying local bundle..." yellow
     if _copy_local_bundle_to "$dest_path"; then
         return 0
@@ -1305,7 +1215,6 @@ download_voice_files() {
     return 1
 }
 
-# --- Verify Fix Status ------------------------------------------------------
 verify_fix() {
     local voice_path="$1" client_name="$2"
     local sname
@@ -1323,7 +1232,6 @@ verify_fix() {
     current_hash=$(md5sum "$node_file" 2>/dev/null | cut -d' ' -f1 || true)
     current_size=$(stat -c%s "$node_file" 2>/dev/null || echo "0")
 
-    # Check for zero-size corruption
     if [[ "$current_size" -eq 0 ]]; then
         echo "ERROR|Voice module file is empty (0 bytes) - corrupted"
         return
@@ -1353,7 +1261,6 @@ verify_fix() {
     echo "UNKNOWN|No original backup to compare - run fix first|$current_hash|$current_size"
 }
 
-# Self-update from UPDATE_URL; INSTALLER_SYNC_DRY_RUN=1 = check only (menu 8).
 sync_self_from_github() {
     if [[ "$SKIP_SELF_UPDATE" == true ]]; then
         return 0
@@ -1407,7 +1314,7 @@ sync_self_from_github() {
     remote_v=$(grep '^SCRIPT_VERSION=' "$tmp" 2>/dev/null | head -1 | cut -d'"' -f2 || echo "?")
 
     if [[ "${INSTALLER_SYNC_DRY_RUN:-0}" == "1" ]]; then
-        status "[!] Remote differs (remote v$remote_v, local v$SCRIPT_VERSION) — restart to pull" yellow
+        status "[!] Remote differs (remote v$remote_v, local v$SCRIPT_VERSION) - restart to pull" yellow
         rm -f "$tmp"
         return 0
     fi
@@ -1433,7 +1340,6 @@ check_script_update() {
     INSTALLER_SYNC_DRY_RUN=1 sync_self_from_github
 }
 
-# --- Fix a Single Client -----------------------------------------------------
 fix_client() {
     local idx="$1" download_path="$2"
     local name="${CLIENT_NAMES[$idx]}"
@@ -1446,11 +1352,9 @@ fix_client() {
     status "  Version: v$version" cyan
     status "  Voice module: $voice_path" dim
 
-    # Backup
     status "  Creating backup..." cyan
     create_voice_backup "$voice_path" "$name" "$version" || true
 
-    # Ensure writable
     if [[ -z "$voice_path" ]] || [[ "$voice_path" == "/" ]]; then
         status "  [X] Invalid voice path - aborting for safety" red
         return 1
@@ -1465,7 +1369,6 @@ fix_client() {
         }
     fi
 
-    # Clear and copy
     if [[ -d "$voice_path" ]]; then
         rm -rf "${voice_path:?}"/* 2>/dev/null
     else
@@ -1484,7 +1387,6 @@ fix_client() {
         fi
     fi
 
-    # Verify copy
     local copied_count
     copied_count=$(find "$voice_path" -type f 2>/dev/null | wc -l)
     if [[ $copied_count -eq 0 ]]; then
@@ -1492,7 +1394,6 @@ fix_client() {
         return 1
     fi
 
-    # Verify node file exists and is non-empty
     local new_node
     new_node=$(find "$voice_path" -name "*.node" -type f 2>/dev/null | head -1 || true)
     if [[ -z "$new_node" ]]; then
@@ -1525,9 +1426,6 @@ fix_client() {
     return 0
 }
 
-# ==============================================================================
-#  DIAGNOSTICS
-# ==============================================================================
 run_diagnostics() {
     sync_self_from_github || true
     banner
@@ -1537,7 +1435,6 @@ run_diagnostics() {
     echo -e "${WHITE}${BOLD}=== SYSTEM DIAGNOSTICS ===${NC}"
     echo ""
 
-    # System info
     echo -e "${CYAN}System:${NC}"
     echo -e "  OS:       $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'"' -f2 || uname -s)"
     echo -e "  Kernel:   $(uname -r)"
@@ -1545,7 +1442,6 @@ run_diagnostics() {
     echo -e "  Disk:     $(get_available_space_mb "$HOME") MB free (home)"
     echo ""
 
-    # Dependencies
     echo -e "${CYAN}Dependencies:${NC}"
     for dep in curl jq md5sum; do
         if command -v "$dep" &>/dev/null; then
@@ -1558,7 +1454,6 @@ run_diagnostics() {
     done
     echo ""
 
-    # Module source
     echo -e "${CYAN}Module Source:${NC}"
     echo -e "  API:   $VOICE_BACKUP_API"
     echo -e "  Ref:   $VOICE_BACKUP_API_REF"
@@ -1578,7 +1473,6 @@ run_diagnostics() {
     fi
     echo ""
 
-    # Scan for clients
     echo -e "${CYAN}Discord Installations:${NC}"
     find_discord_clients
 
@@ -1624,7 +1518,6 @@ run_diagnostics() {
                 echo -e "    ${RED}[!] No .node file found!${NC}"
             fi
 
-            # Check fix status
             local result
             result=$(verify_fix "${CLIENT_VOICE_PATHS[$i]}" "${CLIENT_NAMES[$i]}")
             local rstatus="${result%%|*}"
@@ -1635,7 +1528,6 @@ run_diagnostics() {
                 ERROR)    local rmsg; IFS='|' read -r _ rmsg _ <<< "$result"; echo -e "    Fix status:  ${RED}ERROR: $rmsg${NC}" ;;
             esac
 
-            # Check update status
             local uresult
             uresult=$(check_discord_updated "${CLIENT_NAMES[$i]}" "${CLIENT_VERSIONS[$i]}")
             local urtype="${uresult%%|*}"
@@ -1647,7 +1539,6 @@ run_diagnostics() {
         done
     fi
 
-    # Backups
     echo ""
     echo -e "${CYAN}Backups:${NC}"
     local orig_count=0 backup_count=0 invalid_count=0
@@ -1684,7 +1575,6 @@ run_diagnostics() {
     backup_size=$(du -sh "$APP_DATA_ROOT" 2>/dev/null | cut -f1 || echo "0")
     echo -e "  Total size: ${backup_size:-0}"
 
-    # Log file
     echo ""
     echo -e "${CYAN}Log:${NC}"
     if [[ -f "$LOG_FILE" ]]; then
@@ -1702,15 +1592,11 @@ run_diagnostics() {
     echo ""
 }
 
-# ==============================================================================
-#  SILENT MODE
-# ==============================================================================
 run_silent() {
     log_file "INFO" "Starting in silent mode"
     find_discord_clients
 
     if [[ ${#CLIENT_NAMES[@]} -eq 0 ]]; then
-        # Check for installations without voice modules
         local no_voice=() no_modules=()
         for i in "${!SEARCH_PATHS[@]}"; do
             local base="${SEARCH_PATHS[$i]}"
@@ -1758,7 +1644,6 @@ run_silent() {
         $needs_fix && exit 1 || exit 0
     fi
 
-    # Filter by client name if specified
     local filtered_idx=()
     if [[ -n "$FIX_CLIENT" ]]; then
         for i in "${!CLIENT_NAMES[@]}"; do
@@ -1772,7 +1657,6 @@ run_silent() {
         fi
     fi
 
-    # Download
     local tmp_dir
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT
@@ -1784,10 +1668,8 @@ run_silent() {
         exit 1
     fi
 
-    # Kill Discord
     kill_discord
 
-    # Fix clients
     local success=0 failed=0
     local indices=()
     if [[ ${#filtered_idx[@]} -gt 0 ]]; then
@@ -1807,7 +1689,6 @@ run_silent() {
     remove_old_backups
     echo "Fixed $success of $(( success + failed )) client(s)"
 
-    # Auto-restart
     if $AUTO_RESTART_DISCORD && [[ $success -gt 0 ]]; then
         echo "Starting Discord..."
         start_discord && echo "[OK] Discord started" || echo "[!] Could not start Discord automatically"
@@ -1816,9 +1697,6 @@ run_silent() {
     exit 0
 }
 
-# ==============================================================================
-#  RESTORE MODE
-# ==============================================================================
 run_restore() {
     banner
     ensure_app_dirs
@@ -1876,7 +1754,6 @@ run_restore() {
         [[ "$confirm" == "y" || "$confirm" == "Y" ]] || { status "Restore cancelled" yellow; exit 0; }
     fi
 
-    # Select target client
     echo ""
     echo -e "  ${WHITE}Restore to which client?${NC}"
     echo ""
@@ -1925,9 +1802,6 @@ run_restore() {
     fi
 }
 
-# ==============================================================================
-#  INTERACTIVE MODE
-# ==============================================================================
 run_interactive() {
     sync_self_from_github || true
     banner
@@ -1945,7 +1819,6 @@ run_interactive() {
         status "[X] No Discord installations found!" red
         echo ""
 
-        # Check for partial installations
         local found_any=false
         for i in "${!SEARCH_PATHS[@]}"; do
             local base="${SEARCH_PATHS[$i]}"
@@ -2002,7 +1875,6 @@ run_interactive() {
         status "      ${CLIENT_VOICE_PATHS[$i]}" dim
     done
 
-    # Check for updates
     echo ""
     local has_updates=false
     for i in "${!CLIENT_NAMES[@]}"; do
@@ -2025,7 +1897,6 @@ run_interactive() {
         esac
     done
 
-    # Main menu
     while true; do
         echo ""
         echo -e "${CYAN}======================================================${NC}"
@@ -2082,7 +1953,6 @@ menu_fix_single() {
     status "=== STARTING FIX ===" blue
     status "Client: ${CLIENT_NAMES[$idx]}" cyan
 
-    # Download
     local tmp_dir
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir" 2>/dev/null; trap - RETURN' RETURN
@@ -2095,7 +1965,6 @@ menu_fix_single() {
         return
     fi
 
-    # Check if Discord is running
     if is_discord_running; then
         echo ""
         echo -e "  ${YELLOW}Discord is currently running. It will be closed to apply the fix.${NC}"
@@ -2112,7 +1981,6 @@ menu_fix_single() {
     fi
     sleep 1
 
-    # Fix
     if fix_client "$idx" "$download_path"; then
         remove_old_backups
         echo ""
@@ -2152,7 +2020,6 @@ menu_fix_all() {
     status "" blue
     status "=== FIX ALL DISCORD CLIENTS ===" blue
 
-    # Download
     local tmp_dir
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir" 2>/dev/null; trap - RETURN' RETURN
@@ -2164,7 +2031,6 @@ menu_fix_all() {
         return
     fi
 
-    # Kill Discord
     if is_discord_running; then
         status "" blue
         status "Closing Discord processes..." blue
@@ -2176,7 +2042,6 @@ menu_fix_all() {
         sleep 1
     fi
 
-    # Fix all
     local success=0 failed=0 fail_names=()
     for i in "${!CLIENT_NAMES[@]}"; do
         if fix_client "$i" "$download_path"; then
@@ -2242,7 +2107,6 @@ menu_verify() {
                 ;;
         esac
 
-        # Show hash info
         IFS='|' read -r _ _ hash size <<< "$result"
         if [[ -n "$hash" ]]; then
             echo -e "      ${DIM}Hash: ${hash:0:16}...  Size: $size bytes${NC}"
@@ -2282,11 +2146,6 @@ menu_check_updates() {
     echo ""
 }
 
-# ==============================================================================
-#  GUI MODE - Python is the only GUI; shell provides backend only.
-#  With no args we try to launch Discord_Stereo_Installer_For_Linux.py;
-#  if Python/tkinter not available, fall back to terminal menu (run_interactive).
-# ==============================================================================
 
 run_gui() {
     sync_self_from_github || true
@@ -2312,9 +2171,6 @@ run_gui() {
     run_interactive
 }
 
-# ==============================================================================
-#  ENTRY POINT
-# ==============================================================================
 if $LIST_CLIENTS_ONLY; then
     sync_self_from_github || true
     ensure_app_dirs

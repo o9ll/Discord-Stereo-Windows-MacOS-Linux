@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-################################################################################
-# Discord Stereo Linux Launcher
-# Payloads: https://github.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/tree/main/Updates/Linux/Updates
-# Installs three files under Linux Stereo Installer/, then runs the Python GUI.
-################################################################################
 
 if [ -z "${BASH_VERSION:-}" ]; then
     exec bash "$0" "$@"
@@ -105,7 +100,6 @@ download_file() {
     return $ret
 }
 
-# Reject empty / too-small / HTML payloads before replacing files.
 validate_download() {
     local tmp="$1"
     local filename="$2"
@@ -128,7 +122,7 @@ validate_download() {
 # region Banner
 echo ""
 echo -e "${CYAN}${BOLD}===== Discord Stereo Linux Launcher =====${NC}"
-echo -e "${DIM}48 kHz | 384 kbps | Stereo${NC}"
+echo -e "${DIM}48 kHz | 248 kbps | Stereo${NC}"
 echo ""
 
 mkdir -p "$INSTALL_DIR"
@@ -150,7 +144,6 @@ else
 
     for entry in "${FILES[@]}"; do
         IFS='|' read -r filename url <<< "$entry"
-        # Cache-bust so CDN edges don't serve a stale copy of a just-pushed script.
         if [[ "$url" == *\?* ]]; then
             url="${url}&_t=$(date +%s)_${RANDOM}"
         else
@@ -219,8 +212,6 @@ fi
 # endregion Update step
 
 # region Local fallback (offline / cloned-repo support)
-# Fills any missing payload from a sibling ./Updates/ folder so a fresh clone
-# works without network access.
 copy_from_local_updates() {
     local src_dir="${SCRIPT_DIR}/Updates"
     local copied=0
@@ -258,7 +249,6 @@ fi
 # endregion Local fallback
 
 # region Launch
-# cd into INSTALL_DIR so the Python GUI can resolve sibling .sh paths via __file__.
 cd "$INSTALL_DIR"
 
 if [ ! -f "Discord_Stereo_Installer_For_Linux.py" ]; then

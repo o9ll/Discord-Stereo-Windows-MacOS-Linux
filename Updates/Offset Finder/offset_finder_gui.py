@@ -22,7 +22,6 @@ sys.dont_write_bytecode = True
 
 VERSION = "1.1.1"
 SCRIPT_DIR = Path(__file__).parent
-# OFFSET_FINDER_DEBUG=1 or --debug for verbose finder log.
 DEBUG_MODE = os.environ.get("OFFSET_FINDER_DEBUG", "").lower() in ("1", "true", "yes") or "--debug" in sys.argv
 
 
@@ -81,7 +80,6 @@ THEME = {
     "SELECT_BG": "#0d47a1",
 }
 
-# Back-compat aliases (keep UI code readable / minimal diff)
 BG = THEME["BG"]
 BG_LIGHT = THEME["BG_LIGHT"]
 BG_INPUT = THEME["BG_INPUT"]
@@ -149,7 +147,7 @@ class OffsetFinderGUI:
 
         tk.Label(title_frame, text="Offset Finder", font=("Segoe UI", 20, "bold"),
                  bg=BG, fg=FG_ACCENT).pack()
-        tk.Label(title_frame, text="Made by: Oracle | Shaun | Hallow | Ascend | Sentry | Sikimzo | Cypher | Crue | Geeko",
+        tk.Label(title_frame, text="Made by: Oracle | Shaun | Hallow | Ascend | Sikimzo | Cypher | Crue | Geeko",
                  font=("Segoe UI", 8), bg=BG, fg=FG_DIM).pack()
         tk.Label(title_frame, text=f"v{VERSION}",
                  font=("Segoe UI", 8), bg=BG, fg=FG_DIM).pack()
@@ -337,7 +335,6 @@ class OffsetFinderGUI:
             self.status_var.set("Output copied to clipboard")
 
     def _copy_block(self):
-        # Prefer Windows block; else Linux; else macOS (block lists all PATCHER_OFFSET_NAMES for that platform).
         block = (self.last_windows_block or self.last_linux_block or self.last_macos_block or "").strip()
         if not block:
             self.status_var.set("No patcher block to copy (run Find Offsets first)")
@@ -358,7 +355,6 @@ class OffsetFinderGUI:
             defaultextension=".txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
         if path:
-            # UTF-8 with BOM optional; use utf-8 for paths/names that may contain unicode
             with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
             self.status_var.set(f"Saved to {path}")
@@ -370,7 +366,6 @@ class OffsetFinderGUI:
             if not search_dir.is_dir():
                 continue
 
-            # Prefer canonical filename match (newest version sorts last with reverse=True).
             named = sorted(
                 (f for f in search_dir.glob("discord_voice_node_offset_finder*.py")
                  if f.name != self_name),
@@ -380,7 +375,6 @@ class OffsetFinderGUI:
                 finder_path = named[0]
                 break
 
-            # Fallback: content sniff across the whole file (markers can sit deep in v5+).
             for f in sorted(search_dir.glob("*.py"), reverse=True):
                 if f.name == self_name:
                     continue

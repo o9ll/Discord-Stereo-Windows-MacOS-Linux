@@ -48,9 +48,6 @@ $DiscordClients = [ordered]@{
 }
 
 $UPDATE_URL = "https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/DiscordVoiceFixer.ps1"
-# Patched Windows voice bundle (installer). ?ref=main pins to the default branch
-# regardless of any future repo default-branch changes; matches Linux installer.
-#   Browse: https://github.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/tree/main/Updates/Nodes/Patched%20Nodes%20(for%20Installer)/Windows
 $VOICE_BACKUP_API = "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FPatched%20Nodes%20%28for%20Installer%29%2FWindows?ref=main"
 $SETTINGS_JSON_URL = "https://raw.githubusercontent.com/ProdHallow/voice-backup/main/settings.json"
 $DISCORD_SETUP_URL = "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
@@ -144,7 +141,6 @@ function Get-HttpStatusCode {
 
 # region Backup Validation
 
-# Validates backup has required .node/.dll files
 function Test-BackupHasContent {
     param([string]$BackupPath)
     $voiceModulePath = Join-Path $BackupPath "voice_module"
@@ -158,7 +154,6 @@ function Test-BackupHasContent {
     return @{ Valid = $true; FileCount = $files.Count; TotalSize = ($files | Measure-Object -Property Length -Sum).Sum }
 }
 
-# Compares MD5 hashes to verify if stereo fix is currently applied
 function Test-StereoFix {
     param([string]$VoiceFolderPath, [string]$ClientName, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
     try {
@@ -215,7 +210,6 @@ function Test-StereoFix {
     }
 }
 
-# Checks all clients for Discord updates since last fix
 function Get-UpdatedDiscordClients {
     $updatedClients = [System.Collections.ArrayList]@()
     $ic = Get-InstalledClients
@@ -357,8 +351,6 @@ function Stop-DiscordProcesses { param([string[]]$ProcessNames)
     foreach ($upId in $updatePids) {
         try { & taskkill /F /PID $upId 2>$null | Out-Null } catch { }
     }
-    # Final verification: report failure if Discord-side processes are still alive
-    # so callers can surface a warning / retry instead of assuming success.
     Start-Sleep -Milliseconds 200
     $stillRunning = Get-Process -Name $checkNames -ErrorAction SilentlyContinue
     if ($stillRunning) {
@@ -373,7 +365,6 @@ function Stop-DiscordProcesses { param([string[]]$ProcessNames)
     return $true
 }
 
-# Finds latest app-* folder with valid modules/voice structure
 function Find-DiscordAppPath { 
     param([string]$BasePath, [switch]$ReturnDiagnostics)
     $af = Get-ChildItem $BasePath -Filter "app-*" -Directory -ErrorAction SilentlyContinue | 
@@ -429,7 +420,6 @@ function Start-DiscordClient { param([string]$ExePath)
     if (-not (Test-Path $ExePath)) { return $false }
     $updateExe = Join-Path (Split-Path (Split-Path $ExePath -Parent) -Parent) "Update.exe"
     $exeName = Split-Path $ExePath -Leaf
-    # Prefer detached launch paths to avoid inheriting the current terminal handles.
     if (Test-Path $updateExe) { try { Start-Process $updateExe -ArgumentList "--processStart",$exeName -WindowStyle Hidden; return $true } catch { } }
     try { Start-Process "cmd.exe" -ArgumentList "/d","/c","start",'""',"`"$ExePath`"" -WindowStyle Hidden; return $true } catch { }
     try { Start-Process $ExePath -WindowStyle Hidden; return $true } catch { }
@@ -454,7 +444,6 @@ function Get-PathFromShortcuts { param([string]$ShortcutName)
     return $result
 }
 
-# Resolves actual client path from config, running process, or shortcuts
 function Get-RealClientPath { param($ClientObj)
     $p = $ClientObj.Path
     if (Test-Path $p) { return $p }
@@ -464,7 +453,6 @@ function Get-RealClientPath { param($ClientObj)
     return $null
 }
 
-# Scans system for all installed Discord clients with valid voice modules
 function Get-InstalledClients {
     $inst = [System.Collections.ArrayList]@()
     $foundPaths = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -490,7 +478,6 @@ function Get-InstalledClients {
 
 $script:DiscordWasReinstalled = $false
 
-# Reinstalls corrupted Discord installations (official clients only)
 function Repair-DiscordClient {
     param(
         [string]$ClientPath,
@@ -611,11 +598,8 @@ function Repair-DiscordClient {
 
 # region Download & EQ APO
 
-# Downloads voice backup files from GitHub
 function Save-VoiceBackupFiles { param([string]$DestinationPath, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
     $maxRetries = 3; $retryDelay = 2
-    # API listing is tiny JSON; per-file timeout must accommodate the ~100 MB
-    # discord_voice.node on slow links. Linux installer uses 600s; mirror that.
     $apiTimeoutSec = 60
     $fileTimeoutSec = 600
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
@@ -660,7 +644,6 @@ function Save-VoiceBackupFiles { param([string]$DestinationPath, [System.Windows
     return $false
 }
 
-# Replaces Discord settings.json with EQ APO compatible version
 function Set-ClientEqApoSettings {
     param([string]$RoamingPath, [string]$ClientName, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form, [bool]$SkipConfirmation = $false)
     try {
@@ -772,7 +755,6 @@ function Get-OriginalBackup { param([string]$ClientName)
     return $null
 }
 
-# Creates permanent backup of original voice modules (never auto-deleted)
 function New-OriginalBackup {
     param([string]$VoiceFolderPath, [string]$ClientName, [string]$AppVersion, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
     try {
@@ -803,7 +785,6 @@ function New-OriginalBackup {
     } catch { Add-Status $StatusBox $Form "[!] Original backup failed: $($_.Exception.Message)" "Orange"; Write-Log "Original backup failed: $($_.Exception.Message)" "ERROR"; return $null }
 }
 
-# Creates timestamped backup before applying fix (rotated, keeps 1 per client)
 function New-VoiceBackup { 
     param([string]$VoiceFolderPath, [string]$ClientName, [string]$AppVersion, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
     try {
@@ -829,7 +810,6 @@ function New-VoiceBackup {
     } catch { Add-Status $StatusBox $Form "[!] Backup failed: $($_.Exception.Message)" "Orange"; Write-Log "Backup failed: $($_.Exception.Message)" "ERROR"; return $null }
 }
 
-# Gets all valid backups (original + rotated) with metadata
 function Get-AvailableBackups {
     param([System.Windows.Forms.RichTextBox]$StatusBox = $null, [System.Windows.Forms.Form]$Form = $null)
     Initialize-BackupDirectory
@@ -873,7 +853,6 @@ function Get-AvailableBackups {
     return ,$bks.ToArray()
 }
 
-# Restores voice module from backup to target Discord installation
 function Restore-FromBackup {
     param([hashtable]$Backup, [string]$TargetVoicePath, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
     try {
@@ -894,7 +873,6 @@ function Restore-FromBackup {
     } catch { Add-Status $StatusBox $Form "[X] Restore failed: $($_.Exception.Message)" "Red"; Write-Log "Restore failed: $($_.Exception.Message)" "ERROR"; return $false }
 }
 
-# Removes old backups keeping only most recent per client
 function Remove-OldBackups {
     $bfs = Get-ChildItem $BACKUP_ROOT -Directory -ErrorAction SilentlyContinue
     $byClient = @{}
@@ -921,7 +899,6 @@ function Remove-OldBackups {
 
 # region Version Check & Update
 
-# Checks if Discord was updated since last fix by comparing versions
 function Get-DiscordClientUpdateStatus { param([string]$ClientPath, [string]$ClientName)
     $st = Get-StateData; if (-not $st) { return $null }
     $ck = $ClientName -replace '\s+','_' -replace '\[|\]','' -replace '-','_'
@@ -935,7 +912,6 @@ function Get-DiscordClientUpdateStatus { param([string]$ClientPath, [string]$Cli
     return @{Updated=$false; CurrentVersion=$cv; LastFixDate=$null}
 }
 
-# Saves fix state (version and timestamp) for tracking updates
 function Save-FixState { param([string]$ClientName, [string]$Version)
     Initialize-BackupDirectory
     $st = Get-StateData; if (-not $st) { $st = @{} }
@@ -994,17 +970,13 @@ function Update-LocalScriptFile { param([string]$UpdatedScriptPath, [string]$Cur
     Start-Process "cmd.exe" -ArgumentList "/c","`"$bf`"" -WindowStyle Hidden
 }
 
-# Normalize script text so line-ending/BOM differences don't trigger false "updates".
 function Get-NormalizedScriptText {
     param([string]$Text)
     if ($null -eq $Text) { return "" }
     $t = [string]$Text
-    # Strip UTF-8 BOM if present
     if ($t.Length -gt 0 -and [int][char]$t[0] -eq 0xFEFF) { $t = $t.Substring(1) }
-    # Normalize newlines
     $t = $t -replace "`r`n", "`n"
     $t = $t -replace "`r", "`n"
-    # Trim trailing whitespace on each line (git/raw can differ)
     $t = ($t -split "`n" | ForEach-Object { $_.TrimEnd() }) -join "`n"
     return $t.Trim()
 }
@@ -1045,8 +1017,6 @@ if ($Silent -or $CheckOnly) {
             try {
                 $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
                 Stop-DiscordProcesses $allProcs | Out-Null
-                # Stop-DiscordProcesses already iterates each name; taskkill /IM does
-                # not support `*` wildcards, so a follow-up "Discord*.exe" call is a no-op.
                 Start-Sleep -Seconds 2
                 $appFolders = Get-ChildItem $corrupt.Path -Filter "app-*" -Directory -ErrorAction SilentlyContinue
                 foreach ($folder in $appFolders) { Remove-Item $folder.FullName -Recurse -Force -ErrorAction SilentlyContinue }
@@ -1258,7 +1228,7 @@ $form.BackColor = $Theme.Background; $form.TopMost = $true
 
 $titleLabel = New-StyledLabel 20 15 460 35 "Stereo Installer" $Fonts.Title $Theme.TextPrimary "MiddleCenter"
 $form.Controls.Add($titleLabel)
-$creditsLabel = New-StyledLabel 20 52 460 28 "Made by`r`nOracle | Shaun | Hallow | Ascend | Sentry | Sikimzo | Cypher" $Fonts.Small $Theme.TextSecondary "MiddleCenter"
+$creditsLabel = New-StyledLabel 20 52 460 28 "Made by`r`nOracle | Shaun | Hallow | Ascend | Sikimzo | Cypher" $Fonts.Small $Theme.TextSecondary "MiddleCenter"
 $form.Controls.Add($creditsLabel)
 
 $updateStatusLabel = New-StyledLabel 20 82 460 18 "" $Fonts.Small $Theme.Warning "MiddleCenter"; $form.Controls.Add($updateStatusLabel)

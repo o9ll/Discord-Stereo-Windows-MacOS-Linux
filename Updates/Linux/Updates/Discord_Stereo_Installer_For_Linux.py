@@ -53,7 +53,6 @@ def _dpi_init_before_tk():
         return
     try:
         import ctypes
-        # PROCESS_PER_MONITOR_DPI_AWARE = 2
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         try:
@@ -112,7 +111,6 @@ def _wsl_bash_cmd(script_path: str, args: list[str]) -> list[str] | None:
             wsl_path = "/mnt/%s%s" % (drive, rest)
         else:
             wsl_path = sp.replace("\\", "/")
-        # Only installer supports --no-gui; patcher does not
         if _is_installer_script(script_path):
             return [wsl, "bash", wsl_path, "--no-gui"] + list(args)
         return [wsl, "bash", wsl_path] + list(args)
@@ -163,7 +161,6 @@ FONTS = {
 def _substitute_fonts():
     try:
         import tkinter.font as tkfont
-        # Probe Tk must use same DPI as main window on Windows
         _dpi_init_before_tk()
         root = tk.Tk()
         root.withdraw()
@@ -194,7 +191,6 @@ class ThemedButton(tk.Frame):
             pady=6,
             cursor="hand2",
         )
-        # width in chars forces wide buttons; omit unless needed to avoid clipping whole row
         if width is not None:
             self.btn.config(width=int(width))
         self.btn.pack()
@@ -212,7 +208,6 @@ class ThemedButton(tk.Frame):
         return hex_color
 
 
-# Single placeholder when no clients detected (keep short to avoid OptionMenu horizontal scroll)
 CLIENT_PLACEHOLDER = "(No clients yet - run Check)"
 
 
@@ -308,7 +303,7 @@ class DiscordVoiceFixerGUI:
             font=FONTS["title"],
         ).pack(pady=(14, 2))
 
-        subtitle = "Oracle | Shaun | Hallow | Ascend | Sentry | Sikimzo | Cypher"
+        subtitle = "Oracle | Shaun | Hallow | Ascend | Sikimzo | Cypher"
         if DEBUG_MODE:
             subtitle += " | DEBUG"
         tk.Label(
@@ -320,7 +315,7 @@ class DiscordVoiceFixerGUI:
         ).pack()
         tk.Label(
             self.root,
-            text="48 kHz | 384 kbps | Stereo",
+            text="48 kHz | 248 kbps | Stereo",
             bg=THEME["bg"],
             fg=THEME["text_dim"],
             font=FONTS["small"],
@@ -342,7 +337,6 @@ class DiscordVoiceFixerGUI:
         inner = tk.Frame(mode_frame, bg=THEME["bg"])
         inner.pack(fill=tk.X, padx=12, pady=10)
 
-        # Short one-line hints under each radio to avoid truncation; full detail in mode_desc inside frame
         def add_mode_row(value, title, hint):
             f = tk.Frame(inner, bg=THEME["bg"])
             f.pack(fill=tk.X, pady=4)
@@ -383,7 +377,6 @@ class DiscordVoiceFixerGUI:
             "Uses g++ or clang. Compiles patcher and patches your .node in place. Close Discord first.",
         )
 
-        # Summary inside mode frame so it is not orphaned below
         desc_wrap = tk.Frame(mode_frame, bg=THEME["bg"])
         desc_wrap.pack(fill=tk.X, padx=12, pady=(0, 10))
         tk.Label(
@@ -433,7 +426,6 @@ class DiscordVoiceFixerGUI:
         else:
             self.client_frame.pack_forget()
 
-        # Pack button bar at BOTTOM first so it always gets height; log fills space above.
         self.button_container = tk.Frame(self.root, bg=THEME["bg"])
         self.button_container.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(8, 12))
         self._rebuild_action_buttons()
@@ -494,11 +486,9 @@ class DiscordVoiceFixerGUI:
             self.root.update_idletasks()
             reqw = self.root.winfo_reqwidth()
             reqh = self.root.winfo_reqheight()
-            # Extra margin for title bar / borders / DPI rounding
             margin_w, margin_h = 48, 64
             w = max(_base_geometry()[0], reqw + margin_w)
             h = max(_base_geometry()[1], reqh + margin_h)
-            # Cap to avoid huge window on misreported reqsize
             w = min(w, 1200)
             h = min(h, 1000)
             self.root.geometry("%dx%d" % (w, h))
@@ -517,7 +507,6 @@ class DiscordVoiceFixerGUI:
         for w in list(self.button_container.winfo_children()):
             w.destroy()
 
-        # Two rows so buttons are never cut off on narrow windows
         row1 = tk.Frame(self.button_container, bg=THEME["bg"])
         row1.pack(fill=tk.X, pady=(0, 6))
         row2 = tk.Frame(self.button_container, bg=THEME["bg"])
@@ -545,7 +534,6 @@ class DiscordVoiceFixerGUI:
 
     def log_line(self, line, tag="info"):
         try:
-            # ASCII-safe for Windows console encoding edge cases
             if isinstance(line, str):
                 line = line.encode("ascii", errors="replace").decode("ascii")
             self.log.insert(tk.END, line + "\n", tag)
@@ -652,7 +640,6 @@ class DiscordVoiceFixerGUI:
                         p.kill()
                 self.root.after(0, lambda: self.log_line(str(e), "err"))
                 rc = -1
-            # Schedule UI updates on main thread
             def on_done():
                 if rc == 0:
                     self.status_var.set("Done")
