@@ -27,7 +27,10 @@ _BITRATE_LE = TARGET_BITRATE_BPS.to_bytes(4, "little")
 BITRATE_PATCH_3 = " ".join(f"{b:02X}" for b in _BITRATE_LE[:3])
 BITRATE_PATCH_4 = " ".join(f"{b:02X}" for b in _BITRATE_LE)
 BITRATE_PATCH_5 = BITRATE_PATCH_4 + " 00"
-MAX510K_LE = (510720).to_bytes(4, "little")
+STOCK_MAX_BITRATE_LE = (512048).to_bytes(4, "little")
+MAX510K_LE = STOCK_MAX_BITRATE_LE
+TIER_EBP_IMMS = (0x2EE0, 0x4E20, 0x7D00)
+TIER_R8D_IMMS = (32000, 48000, 60000)
 FLAT_EBP248K_PATCH = "BD C0 C8 03 00 90"
 FLAT_R8D248K_PATCH = "41 B8 C0 C8 03 00 90"
 
@@ -66,7 +69,6 @@ DERIVATIONS = {
     ],
     "SetBitrateClamp_Max248k_Cmp": [
         ("RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xD8),
-        ("RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xBE),
     ],
     "SetBitrateClamp_Max248k_Mov": [
         ("SetBitrateClamp_Max248k_Cmp", 0x6),
@@ -179,6 +181,12 @@ class Signature:
 
     def __repr__(self):
         return f"Signature({self.name})"
+
+
+def _recreate_fec_disambiguator(data, match_offset):
+    if match_offset + 0xCD + 6 > len(data):
+        return False
+    return data[match_offset + 0xCD:match_offset + 0xCD + 6] == b"\x41\x80\x7E\x34\x01\x75"
 
 
 def _mono_downmixer_disambiguator(data, match_offset):
@@ -382,13 +390,15 @@ SIGNATURES = [
 
     Signature(
         name="RecreateEncoderInstance_FecBranch_Jmp",
-        pattern_hex="41 80 BE 1C 01 00 00 00 75",
-        target_offset=8,
+        pattern_hex="41 80 7E 1C 01 75",
+        target_offset=5,
         description="RecreateEncoderInstance: cmp [r14+1Ch],1; jnz EnableFec -> jmp DisableFec",
         expected_original="75",
         patch_bytes="EB",
         patch_len=1,
+        disambiguator=_recreate_fec_disambiguator,
         alt_patterns=[
+            ("41 80 BE 1C 01 00 00 00 75", 8),
             ("80 79 1C 01 75", 4),
             ("41 80 BC 1C 01 00 00 00 75", 8),
             ("41 80 7C 24 1C 01 75", 6),
@@ -397,13 +407,14 @@ SIGNATURES = [
 
     Signature(
         name="MultiChannelRecreateEncoder_FecBranch_Jmp",
-        pattern_hex="41 80 BF 18 01 00 00 00 75",
-        target_offset=8,
+        pattern_hex="41 80 7F 18 01 75",
+        target_offset=5,
         description="MultiChannel RecreateEncoderInstance: cmp [r15+18h],1; jnz -> jmp",
         expected_original="75",
         patch_bytes="EB",
         patch_len=1,
         alt_patterns=[
+            ("41 80 BF 18 01 00 00 00 75", 8),
             ("41 80 BD 18 01 00 00 00 75", 8),
             ("41 80 7D 18 01 75", 5),
         ],
@@ -424,13 +435,14 @@ SIGNATURES = [
 
     Signature(
         name="RecreateEncoderInstance_DtxBranch_Jmp",
-        pattern_hex="80 7E 34 01 75",
-        target_offset=4,
+        pattern_hex="41 80 7E 34 01 75",
+        target_offset=5,
         description="RecreateEncoderInstance: cmp byte [rsi+34h],1; jnz EnableDtx -> jmp",
         expected_original="75",
         patch_bytes="EB",
         patch_len=1,
         alt_patterns=[
+            ("80 7E 34 01 75", 4),
             ("41 80 BE 34 01 00 00 00 75", 8),
             ("80 79 34 01 75", 4),
         ],
@@ -438,12 +450,15 @@ SIGNATURES = [
 
     Signature(
         name="MultiChannelRecreateEncoder_DtxBranch_Jmp",
-        pattern_hex="41 80 BF 34 01 00 00 00 75",
-        target_offset=8,
+        pattern_hex="41 80 7F 1A 01 75",
+        target_offset=5,
         description="MultiChannel RecreateEncoderInstance: cmp [r15+34h],1; jnz -> jmp",
         expected_original="75",
         patch_bytes="EB",
         patch_len=1,
+        alt_patterns=[
+            ("41 80 BF 34 01 00 00 00 75", 8),
+        ],
     ),
 
     Signature(
@@ -481,12 +496,15 @@ SIGNATURES = [
 
     Signature(
         name="CopyRedEncodeImpl_RedundantCopy_JmpNear",
-        pattern_hex="48 8B 09 48 85 C9 0F 84",
+        pattern_hex="49 8B 55 00 48 85 D2 0F 84",
         target_offset=7,
         description="AudioEncoderCopyRed::EncodeImpl: test rcx,rcx; jz skip RED -> jmp near",
         expected_original="0F 84",
         patch_bytes="E9",
         patch_len=2,
+        alt_patterns=[
+            ("48 8B 09 48 85 C9 0F 84", 7),
+        ],
     ),
 ]
 
@@ -1964,6 +1982,11 @@ def find_offset(data, sig, text_start=0, text_end=None):
             if len(valid) >= 1:
                 resolved = valid
 
+        if sig.name == "SetFec_EnableBranch_Jmp" and len(resolved) > 1:
+            resolved = [min(resolved)]
+        if sig.name == "SetDtx_EnableBranch_Jmp" and len(resolved) > 1:
+            resolved = [max(resolved)]
+
         if sig.name == "CommitAudioCodec_ChannelCount_Imm02" and len(resolved) >= 1:
             resolved = [m for m in resolved if _ess1_no_duplicate_cmp_in_next_24(data, m)]
             if not resolved:
@@ -2411,54 +2434,6 @@ def _topo_sort_derivations(derivations):
 
 
 
-ALL_OFFSET_NAMES = [
-    "CreateAudioFrame_ChannelAssign_Mov",
-    "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
-    "CapturedAudioProcessor_MonoDownmix_NopJmp",
-    "CommitAudioCodec_ChannelCount_Imm02",
-    "CommitAudioCodec_SuccessBranch_Jmp",
-    "ApplySettings_BitrateCalcLow_Channels_Mov248k",
-    "ApplySettings_BitrateCalcMid_Channels_Mov248k",
-    "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
-    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
-    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
-    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
-    "SetBitrateClamp_Max248k_Cmp",
-    "SetBitrateClamp_Max248k_Mov",
-    "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
-    "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
-    "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
-    "SetBitrate_Imm64_Imm248k",
-    "SetBitrate_OrMask_Nop3",
-    "SetTargetBitrate_Mulss_Nop6",
-    "GetMultipliedBitrate_Mulss_Nop7",
-    "GetMultipliedBitrate_Entry_IdentityRet",
-    "SetTargetBitrate_ClampMax248k_Cmp",
-    "SetTargetBitrate_ClampMax248k_Mov",
-    "ApplySettings_MaxAvgBitrateClamp248k_Cmp",
-    "ApplySettings_MaxAvgBitrateClamp248k_Mov",
-    "EncoderOpusImpl_RelayClamp248k_Cmp",
-    "EncoderOpusImpl_RelayClamp248k_Mov",
-    "SelectSampleRate_Cmov48k_Nop3",
-    "WebRtcSplHighPass_Dispatch_MovRet",
-    "hp_cutoff_Callback_InjectShellcode",
-    "dc_reject_Callback_InjectShellcode",
-    "ChannelDownmix_Entry_Ret",
-    "AudioEncoderOpusConfig_IsOK_MovTrueRet",
-    "CodecMismatchThrow_Entry_Ret",
-    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
-    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
-    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
-    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
-    "RecreateEncoderInstance_FecBranch_Jmp",
-    "MultiChannelRecreateEncoder_FecBranch_Jmp",
-    "SetFec_EnableBranch_Jmp",
-    "RecreateEncoderInstance_DtxBranch_Jmp",
-    "MultiChannelRecreateEncoder_DtxBranch_Jmp",
-    "SetDtx_EnableBranch_Jmp",
-    "CopyRedEncodeImpl_RedundantCopy_JmpNear",
-]
-
 _WINDOWS_PATCHER_OFFSET_ORDER = (
     "CreateAudioFrame_ChannelAssign_Mov",
     "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
@@ -2520,6 +2495,10 @@ _WINDOWS_PATCHER_CORE_COUNT = 45
 if len(_WINDOWS_PATCHER_OFFSET_ORDER) != 55:
     raise RuntimeError("_WINDOWS_PATCHER_OFFSET_ORDER must be 55 entries (patcher v18.2 sync)")
 
+ALL_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT])
+if tuple(ALL_OFFSET_NAMES) != tuple(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT]):
+    raise RuntimeError("ALL_OFFSET_NAMES must match _WINDOWS_PATCHER_OFFSET_ORDER core slice")
+
 WINDOWS_PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT])
 WINDOWS_EXTENDED_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[_WINDOWS_PATCHER_CORE_COUNT:])
 
@@ -2531,10 +2510,11 @@ def _all_offset_names():
 
 
 def _missing_discovered(results, fmt):
-    m = [n for n in _all_offset_names() if n not in results]
     if fmt == "pe":
-        m = [n for n in m if n not in LINUX_ONLY_OFFSET_NAMES]
-    return m
+        names = list(PATCHER_OFFSET_NAMES)
+    else:
+        names = list(_all_offset_names())
+    return [n for n in names if n not in results]
 
 
 WINDOWS_DISCORD_EXPORT_NAMES = {
@@ -2551,6 +2531,9 @@ if set(WINDOWS_DISCORD_EXPORT_NAMES) != set(_WINDOWS_PATCHER_OFFSET_ORDER[47:]):
     raise RuntimeError("WINDOWS_DISCORD_EXPORT_NAMES keys must match Discord API LOCK entries in _WINDOWS_PATCHER_OFFSET_ORDER[47:]")
 
 PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER)
+
+PATCHER_OFFSET_NAME_WIDTH = max(len(n) for n in PATCHER_OFFSET_NAMES)
+OFFSET_LOG_NAME_WIDTH = PATCHER_OFFSET_NAME_WIDTH
 
 if len(ALL_OFFSET_NAMES) != len(set(ALL_OFFSET_NAMES)):
     raise RuntimeError("ALL_OFFSET_NAMES has duplicate entries (breaks patcher hit counting)")
@@ -2961,16 +2944,16 @@ def discover_offsets_arm64(data, arm64_info):
             file_off = config_off - adj
             results[offset_name] = config_off
             tiers_used[offset_name] = f"arm64-sym({safe_sym})"
-            print(f"  [SYM ] {offset_name:45s} = 0x{config_off:X}  (file 0x{file_off:X})  [{safe_sym}]")
+            print(f"  [SYM ] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (file 0x{file_off:08X})  [{safe_sym}]")
 
         elif method == 'arm64-symbol+scan':
             file_off = config_off - adj
             results[offset_name] = config_off
             tiers_used[offset_name] = f"arm64-scan({safe_sym})"
-            print(f"  [SCAN] {offset_name:45s} = 0x{config_off:X}  (file 0x{file_off:X})  [via {safe_sym}]")
+            print(f"  [SCAN] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (file 0x{file_off:08X})  [via {safe_sym}]")
 
         elif method == 'arm64-hint':
-            print(f"  [HINT] {offset_name:45s} function '{safe_sym}' - scan did not match")
+            print(f"  [HINT] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s} function '{safe_sym}' - scan did not match")
 
     if "ApplySettings_BitrateCalcLow_Channels_Mov248k" not in results:
         slice_start = fat_offset
@@ -2986,7 +2969,7 @@ def discover_offsets_arm64(data, arm64_info):
         if candidates:
             results["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = candidates[0] + adj
             tiers_used["ApplySettings_BitrateCalcLow_Channels_Mov248k"] = "arm64-literal-32000(1st)"
-            print(f"  [SCAN] {'ApplySettings_BitrateCalcLow_Channels_Mov248k':45s} = 0x{candidates[0] + adj:X}  (file 0x{candidates[0]:X})  [literal 32000]")
+            print(f"  [SCAN] {'ApplySettings_BitrateCalcLow_Channels_Mov248k':<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{candidates[0] + adj:08X}  (file 0x{candidates[0]:08X})  [literal 32000]")
 
     validation_failures = _validate_discovered_offsets(results, data, adj)
     for name, reason in validation_failures:
@@ -3120,19 +3103,25 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
         return
 
     adj = bin_info.get("file_offset_adjustment", 0xC00)
-    tier_imms = (32000, 48000, 60000)
     flat_ebp = bytes.fromhex("BDC0C8030090")
     flat_r8d = bytes.fromhex("41B8C8030090")
-    max510 = struct.pack("<I", 510720)
+    max_stock = STOCK_MAX_BITRATE_LE
     max248 = struct.pack("<I", 248000)
 
     def _tier_ebp_valid(rva):
         fo = rva - adj
-        if fo < 0 or fo + 9 > len(data):
+        if fo < 0 or fo + 6 > len(data):
             return False
         if data[fo:fo + 6] == flat_ebp:
             return True
-        return data[fo:fo + 2] == b"\x69\xE8" and data[fo + 6:fo + 9] == b"\x0F\xAF\xE8"
+        if data[fo:fo + 2] != b"\x69\xE8":
+            return False
+        imm = struct.unpack_from("<I", data, fo + 2)[0]
+        if imm in TIER_EBP_IMMS:
+            return True
+        if fo + 9 <= len(data) and data[fo + 6:fo + 9] == b"\x0F\xAF\xE8" and imm in TIER_R8D_IMMS:
+            return True
+        return False
 
     def _apply_derived(name, anchor_name, delta, label):
         if name in results or anchor_name not in results:
@@ -3143,7 +3132,7 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
             return False
         results[name] = config_off
         tiers_used[name] = label
-        print(f"  [ OK ] {name:45s} = 0x{config_off:X}  [{label}]")
+        print(f"  [ OK ] {name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  [{label}]")
         return True
 
     print("\n" + "=" * 65)
@@ -3162,21 +3151,25 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
     )
     for name in apply_names + recreate_names:
         if name in results and not _tier_ebp_valid(results[name]):
-            print(f"  [PURGE] {name:45s} @ 0x{results[name]:X} (invalid tier bytes)")
+            print(f"  [PURGE] {name:<{OFFSET_LOG_NAME_WIDTH}s} @ 0x{results[name]:X} (invalid tier bytes)")
             results.pop(name, None)
             tiers_used.pop(name, None)
 
     def _scan_tier_ebp_sites(start, end, limit=3):
         sites = []
         pos = max(0, start)
-        while pos < min(end, len(data) - 9) and len(sites) < limit:
+        while pos < min(end, len(data) - 6) and len(sites) < limit:
             if data[pos:pos + 6] == flat_ebp:
                 sites.append(pos + adj)
                 pos += 6
                 continue
-            if data[pos:pos + 2] == b"\x69\xE8" and data[pos + 6:pos + 9] == b"\x0F\xAF\xE8":
+            if data[pos:pos + 2] == b"\x69\xE8":
                 imm = struct.unpack_from("<I", data, pos + 2)[0]
-                if imm in tier_imms:
+                if imm in TIER_EBP_IMMS:
+                    sites.append(pos + adj)
+                    pos += 6
+                    continue
+                if pos + 9 <= len(data) and data[pos + 6:pos + 9] == b"\x0F\xAF\xE8" and imm in TIER_R8D_IMMS:
                     sites.append(pos + adj)
                     pos += 6
                     continue
@@ -3186,14 +3179,20 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
     def _scan_adaptor_r8d_sites(start, end, limit=3):
         sites = []
         pos = max(0, start)
-        while pos < min(end, len(data) - 9) and len(sites) < limit:
+        while pos < min(end, len(data) - 7) and len(sites) < limit:
             if data[pos:pos + 7] == flat_r8d:
                 sites.append(pos + adj)
                 pos += 7
                 continue
+            if data[pos:pos + 3] == b"\x44\x69\xC6":
+                imm = struct.unpack_from("<I", data, pos + 3)[0]
+                if imm in TIER_R8D_IMMS:
+                    sites.append(pos + adj)
+                    pos += 7
+                    continue
             if data[pos:pos + 2] in (b"\x41\xB8", b"\x41\xB9"):
                 imm = struct.unpack_from("<I", data, pos + 2)[0]
-                if imm in tier_imms and data.find(b"\x41\x0F\xAF\xC0", pos, min(len(data), pos + 24)) >= 0:
+                if imm in TIER_R8D_IMMS and data.find(b"\x41\x0F\xAF\xC0", pos, min(len(data), pos + 24)) >= 0:
                     sites.append(pos + adj)
                     pos += 7
                     continue
@@ -3210,7 +3209,7 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
                     if name not in results:
                         results[name] = off
                         tiers_used[name] = "extended(tier-ebp-apply)"
-                        print(f"  [ OK ] {name:45s} = 0x{off:X}")
+                        print(f"  [ OK ] {name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{off:08X}")
 
     recreate_names = (
         "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
@@ -3228,7 +3227,7 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
                 if name not in results:
                     results[name] = off
                     tiers_used[name] = "extended(tier-ebp-recreate)"
-                    print(f"  [ OK ] {name:45s} = 0x{off:X}")
+                    print(f"  [ OK ] {name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{off:08X}")
 
     adapt_names = (
         "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
@@ -3242,7 +3241,7 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
                 if name not in results:
                     results[name] = off
                     tiers_used[name] = "extended(adaptor-r8d)"
-                    print(f"  [ OK ] {name:45s} = 0x{off:X}")
+                    print(f"  [ OK ] {name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{off:08X}")
 
     apply_anchor = results.get("ApplySettings_BitrateCalcLow_Channels_Mov248k")
     if apply_anchor is not None:
@@ -3336,31 +3335,31 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
         pos = win_start
         while pos < win_end - 12:
             if cmp_op == b"\x3D":
-                if data[pos] == 0x3D and data[pos + 1:pos + 5] in (max510, max248):
+                if data[pos] == 0x3D and data[pos + 1:pos + 5] in (max_stock, max248):
                     cmp_off = pos + adj
                     mov_at = pos + 5
-                    if mov_at + 5 <= len(data) and data[mov_at] == 0xBF and data[mov_at + 1:mov_at + 5] in (max510, max248):
+                    if mov_at + 5 <= len(data) and data[mov_at] == 0xBF and data[mov_at + 1:mov_at + 5] in (max_stock, max248):
                         if cmp_name not in results:
                             results[cmp_name] = cmp_off
                             tiers_used[cmp_name] = "extended(clamp-window)"
-                            print(f"  [ OK ] {cmp_name:45s} = 0x{cmp_off:X}")
+                            print(f"  [ OK ] {cmp_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{cmp_off:08X}")
                         if mov_name not in results:
                             results[mov_name] = mov_at + adj
                             tiers_used[mov_name] = "extended(clamp-window)"
-                            print(f"  [ OK ] {mov_name:45s} = 0x{mov_at + adj:X}")
+                            print(f"  [ OK ] {mov_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{mov_at + adj:08X}")
                         break
-            elif data[pos:pos + 2] == cmp_op and data[pos + 2:pos + 6] in (max510, max248):
+            elif data[pos:pos + 2] == cmp_op and data[pos + 2:pos + 6] in (max_stock, max248):
                 cmp_off = pos + adj
                 mov_at = pos + 6
-                if mov_at + 5 <= len(data) and data[mov_at] == mov_op[0] and data[mov_at + 1:mov_at + 5] in (max510, max248):
+                if mov_at + 5 <= len(data) and data[mov_at] == mov_op[0] and data[mov_at + 1:mov_at + 5] in (max_stock, max248):
                     if cmp_name not in results:
                         results[cmp_name] = cmp_off
                         tiers_used[cmp_name] = "extended(clamp-window)"
-                        print(f"  [ OK ] {cmp_name:45s} = 0x{cmp_off:X}")
+                        print(f"  [ OK ] {cmp_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{cmp_off:08X}")
                     if mov_name not in results:
                         results[mov_name] = mov_at + adj
                         tiers_used[mov_name] = "extended(clamp-window)"
-                        print(f"  [ OK ] {mov_name:45s} = 0x{mov_at + adj:X}")
+                        print(f"  [ OK ] {mov_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{mov_at + adj:08X}")
                     break
             pos += 1
 
@@ -3369,7 +3368,7 @@ def _discover_bitrate_v18_offsets_pe(data, bin_info, results, tiers_used, text_s
         ("SetTargetBitrate_ClampMax248k_Mov", "SetTargetBitrate_ClampMax248k_Cmp", 0x6),
         ("EncoderOpusImpl_RelayClamp248k_Cmp", "SetTargetBitrate_Mulss_Nop6", 0x2FB),
         ("EncoderOpusImpl_RelayClamp248k_Mov", "EncoderOpusImpl_RelayClamp248k_Cmp", 0x5),
-        ("SetBitrateClamp_Max248k_Cmp", "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xBE),
+        ("SetBitrateClamp_Max248k_Cmp", "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k", 0xD8),
         ("SetBitrateClamp_Max248k_Mov", "SetBitrateClamp_Max248k_Cmp", 0x6),
     ):
         _apply_derived(name, anchor, delta, f"derived({anchor}+0x{delta & 0xFFFFFFFF:X})")
@@ -3524,25 +3523,25 @@ def _discover_offsets_impl(data, bin_info):
                         if 0 <= file_off and file_off + len(expected) <= len(data):
                             actual = data[file_off:file_off + len(expected)]
                             if actual != expected:
-                                print(f"  [SKIP] {offset_name:45s} symbol '{sym_name}' @0x{config_off:X} - bytes do not match")
+                                print(f"  [SKIP] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s} symbol '{sym_name}' @0x{config_off:X} - bytes do not match")
                                 accept = False
 
                 if accept:
                     results[offset_name] = config_off
                     tiers_used[offset_name] = f"symbol({sym_name})"
-                    print(f"  [SYM ] {offset_name:45s} = 0x{config_off:X}  (file 0x{file_off:X})  [{sym_name}]")
+                    print(f"  [SYM ] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (file 0x{file_off:08X})  [{sym_name}]")
 
             elif method == 'symbol+scan':
                 results[offset_name] = config_off
                 tiers_used[offset_name] = f"symbol+scan({sym_name})"
                 file_off = config_off - adj
-                print(f"  [SCAN] {offset_name:45s} = 0x{config_off:X}  (file 0x{file_off:X})  [via {sym_name}]")
+                print(f"  [SCAN] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (file 0x{file_off:08X})  [via {sym_name}]")
 
             elif method == 'symbol-range-hint':
                 hint_key = f"_symhint_{offset_name}"
                 if hint_key in sym_resolved:
                     sym_hints[offset_name] = sym_resolved[hint_key]
-                    print(f"  [HINT] {offset_name:45s} function '{sym_name}' - will do targeted scan")
+                    print(f"  [HINT] {offset_name:<{OFFSET_LOG_NAME_WIDTH}s} function '{sym_name}' - will do targeted scan")
 
         if not sym_details:
             print("  No symbol matches found - falling through to signature scanning")
@@ -3553,7 +3552,7 @@ def _discover_offsets_impl(data, bin_info):
 
     for sig in SIGNATURES:
         if sig.name in results:
-            print(f"  [SKIP] {sig.name:45s} already resolved via symbol table")
+            print(f"  [SKIP] {sig.name:<{OFFSET_LOG_NAME_WIDTH}s} already resolved via symbol table")
             continue
 
         scan_start = text_start
@@ -3582,7 +3581,7 @@ def _discover_offsets_impl(data, bin_info):
                 continue
             config_off = file_off + adj
             tag = "OK" if tier == "primary" else "ALT"
-            print(f"  [{tag:4s}] {sig.name:45s} = 0x{config_off:X}  (file 0x{file_off:X})  [{tier}] (conf={conf})")
+            print(f"  [{tag:4s}] {sig.name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (file 0x{file_off:08X})  [{tier}] (conf={conf})")
 
             if sig.expected_original:
                 expected = bytes.fromhex(sig.expected_original.replace(' ', ''))
@@ -3644,7 +3643,7 @@ def _discover_offsets_impl(data, bin_info):
                         config_off = file_off + adj
                         ambig = f"(ambig:{len(resolved)})" if len(resolved) > 1 else ""
                         tier = f"clang-alt{ambig}"
-                        print(f"  [CLNG] {sig_name:45s} = 0x{config_off:X}  (file 0x{file_off:X})  [{tier}] (conf={conf})")
+                        print(f"  [CLNG] {sig_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (file 0x{file_off:08X})  [{tier}] (conf={conf})")
                         results[sig_name] = config_off
                         tiers_used[sig_name] = tier
                         still_missing = [n for n in still_missing if n != sig_name]
@@ -3770,7 +3769,7 @@ def _discover_offsets_impl(data, bin_info):
                         verified_exact = False
 
             if verified_exact:
-                print(f"  [ OK ] {derived_name:45s} = 0x{config_off:X}  (from {anchor_name} + 0x{delta:X})")
+                print(f"  [ OK ] {derived_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (from {anchor_name} + 0x{delta:X})")
                 results[derived_name] = config_off
                 tiers_used[derived_name] = f"derived({anchor_name}+0x{delta:X})"
                 found = True
@@ -3786,7 +3785,7 @@ def _discover_offsets_impl(data, bin_info):
                 )
                 if slid_off is not None and slide_dist != 0:
                     sign = "+" if slide_dist > 0 else ""
-                    print(f"  [SLID] {derived_name:45s} = 0x{slid_off:X}  "
+                    print(f"  [SLID] {derived_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{slid_off:08X}  "
                           f"(from {anchor_name} + 0x{delta:X} {sign}{slide_dist})")
                     results[derived_name] = slid_off
                     tiers_used[derived_name] = f"sliding({anchor_name}+0x{delta:X}{sign}{slide_dist})"
@@ -3808,7 +3807,7 @@ def _discover_offsets_impl(data, bin_info):
                             has_expected = True
                     if has_expected:
                         continue
-                    print(f"  [ OK ] {derived_name:45s} = 0x{config_off:X}  (from {anchor_name} + 0x{delta:X})  [unverified]")
+                    print(f"  [ OK ] {derived_name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  (from {anchor_name} + 0x{delta:X})  [unverified]")
                     results[derived_name] = config_off
                     tiers_used[derived_name] = f"derived-unverified({anchor_name}+0x{delta:X})"
                     found = True
@@ -3877,7 +3876,7 @@ def _discover_offsets_impl(data, bin_info):
                         actual = data[file_off:file_off+len(expected)]
                         if actual != expected:
                             continue
-                print(f"  [HEUR] {name:45s} = 0x{config_off:X}  [{reason}]")
+                print(f"  [HEUR] {name:<{OFFSET_LOG_NAME_WIDTH}s}  = 0x{config_off:08X}  [{reason}]")
                 results[name] = config_off
                 tiers_used[name] = f"heuristic({reason})"
 
@@ -4099,7 +4098,7 @@ def validate_offsets(data, results, adj, bin_fmt='pe'):
         file_off = config_off - adj
 
         if file_off < 0 or file_off >= len(data):
-            print(f"  [FAIL] {name:45s} offset 0x{config_off:X} out of bounds")
+            print(f"  [FAIL] {name:<{OFFSET_LOG_NAME_WIDTH}s} offset 0x{config_off:X} out of bounds")
             warnings += 1
             continue
 
@@ -4110,22 +4109,22 @@ def validate_offsets(data, results, adj, bin_fmt='pe'):
             if name == "CommitAudioCodec_SuccessBranch_Jmp" and bin_fmt == "elf":
                 peek = data[file_off : min(file_off + 6, len(data))]
                 if len(peek) >= 1 and peek[0] in (0x74, 0x75):
-                    print(f"  [PASS] {name:45s} original bytes: {peek[:1].hex(' ')} (short jcc)")
+                    print(f"  [PASS] {name:<{OFFSET_LOG_NAME_WIDTH}s} original bytes: {peek[:1].hex(' ')} (short jcc)")
                     verified += 1
                     continue
                 if len(peek) >= 2 and peek[0] == 0x0F and peek[1] in (0x84, 0x85):
-                    print(f"  [PASS] {name:45s} jcc near rel32: {peek.hex(' ')}")
+                    print(f"  [PASS] {name:<{OFFSET_LOG_NAME_WIDTH}s} jcc near rel32: {peek.hex(' ')}")
                     verified += 1
                     continue
                 if len(peek) >= 6 and peek[:6] == b"\x90" * 6:
-                    print(f"  [WARN] {name:45s} ALREADY PATCHED (6x NOP)")
+                    print(f"  [WARN] {name:<{OFFSET_LOG_NAME_WIDTH}s} ALREADY PATCHED (6x NOP)")
                     warnings += 1
                     continue
 
             if expected_hex:
                 expected = bytes.fromhex(expected_hex.replace(' ', ''))
                 if actual[:len(expected)] == expected:
-                    print(f"  [PASS] {name:45s} original bytes: {actual[:len(expected)].hex(' ')}")
+                    print(f"  [PASS] {name:<{OFFSET_LOG_NAME_WIDTH}s} original bytes: {actual[:len(expected)].hex(' ')}")
                     verified += 1
                 else:
                     patch_hex = PATCH_INFO.get(name, (None,))[0]
@@ -4135,15 +4134,15 @@ def validate_offsets(data, results, adj, bin_fmt='pe'):
                         try:
                             patched = bytes.fromhex(patch_hex.replace(' ', ''))
                             if actual[:len(patched)] == patched:
-                                print(f"  [WARN] {name:45s} ALREADY PATCHED: {actual[:len(patched)].hex(' ')}")
+                                print(f"  [WARN] {name:<{OFFSET_LOG_NAME_WIDTH}s} ALREADY PATCHED: {actual[:len(patched)].hex(' ')}")
                                 warnings += 1
                                 continue
                         except ValueError:
                             pass
-                    print(f"  [WARN] {name:45s} unexpected: {actual[:len(expected)].hex(' ')} (expected {expected_hex})")
+                    print(f"  [WARN] {name:<{OFFSET_LOG_NAME_WIDTH}s} unexpected: {actual[:len(expected)].hex(' ')} (expected {expected_hex})")
                     warnings += 1
             else:
-                print(f"  [INFO] {name:45s} bytes: {actual[:min(8,length)].hex(' ')} (no fixed expected)")
+                print(f"  [INFO] {name:<{OFFSET_LOG_NAME_WIDTH}s} bytes: {actual[:min(8,length)].hex(' ')} (no fixed expected)")
                 verified += 1
 
     return verified, warnings
@@ -4198,6 +4197,53 @@ def _md5_file_hex(file_path, lower=False):
 
 # region Output Formatters
 
+def _format_rva(rva):
+    return f"0x{int(rva):08X}"
+
+
+def _format_offset_assignment(name, rva, name_width=None, indent="", sep=" = "):
+    w = name_width if name_width is not None else PATCHER_OFFSET_NAME_WIDTH
+    pad = " " * max(0, w - len(name))
+    return f"{indent}{name}{pad}{sep}{_format_rva(rva)}"
+
+
+def _format_offset_table_lines(names, results, name_width=None, indent="    ", include_missing=False):
+    w = name_width if name_width is not None else max((len(n) for n in names), default=PATCHER_OFFSET_NAME_WIDTH)
+    lines = []
+    for name in names:
+        if name in results and results[name]:
+            lines.append(_format_offset_assignment(name, results[name], w, indent))
+        elif include_missing:
+            pad = " " * max(0, w - len(name))
+            lines.append(f"{indent}{name}{pad} = 0x00000000")
+    return lines
+
+
+def print_pe_offset_summary(results, tiers_used=None, adj=0):
+    if not results:
+        return
+    name_w = PATCHER_OFFSET_NAME_WIDTH
+    rva_w = 10
+    file_w = 10
+    print(f"  {'Name':<{name_w}s}  {'RVA':>{rva_w}s}  {'File':>{file_w}s}  Tier")
+    print(f"  {'-' * name_w}  {'-' * rva_w}  {'-' * file_w}  {'-' * 18}")
+    for group_name, patches in PATCHER_DEBUG_GROUPS.items():
+        print(f"  [{group_name}]")
+        for key, _desc in patches:
+            if key in results:
+                rva = results[key]
+                file_off = rva - adj if adj else rva
+                tier = (tiers_used or {}).get(key, "")
+                tier_short = tier.split("(")[0].split("-")[0] if tier else "?"
+                print(
+                    f"  {key:<{name_w}s}  {_format_rva(rva):>{rva_w}s}  "
+                    f"{_format_rva(file_off):>{file_w}s}  {tier_short}"
+                )
+            else:
+                print(f"  {key:<{name_w}s}  {'MISSING':>{rva_w}s}")
+        print("")
+
+
 def format_powershell_config(results, bin_info=None, file_path=None, file_size=None):
     lines = []
     fmt = (bin_info or {}).get('format', 'raw')
@@ -4218,15 +4264,7 @@ def format_powershell_config(results, bin_info=None, file_path=None, file_size=N
 
     lines.append("    Offsets = @{")
     ordered = _all_offset_names()
-    max_len = max(len(n) for n in ordered)
-
-    for name in ordered:
-        pad = " " * (max_len - len(name))
-        if name in results:
-            lines.append(f"        {name}{pad} = 0x{results[name]:X}")
-        else:
-            lines.append(f"        {name}{pad} = 0x0")
-
+    lines.extend(_format_offset_table_lines(ordered, results, indent="        ", include_missing=True))
     lines.append("    }")
     return "\n".join(lines)
 
@@ -4243,7 +4281,7 @@ def _validate_discovered_offsets(results, data, adj, margin=512):
             invalid.append((name, "file offset is negative"))
             continue
         if file_off >= n - margin:
-            invalid.append((name, f"0x{rva:X} (file 0x{file_off:X}) out of file bounds"))
+            invalid.append((name, f"0x{rva:X} (file 0x{file_off:08X}) out of file bounds"))
             continue
     invalid_names = {x for x, _ in invalid}
     rva_to_names = {}
@@ -4508,21 +4546,20 @@ def format_windows_patcher_block(results, bin_info, file_path, file_size, discor
         "# region Offsets (PASTE HERE)",
         "",
         "$Script:OffsetsMeta = @{",
-        '    FinderVersion = "discord_voice_node_offset_finder.py v%s"' % VERSION,
-        '    DiscordAppVersion = "%s"' % app_ver,
-        "    Size          = %s" % file_size,
-        '    MD5           = "%s"' % md5,
-        "}",
-        "",
-        "$Script:Offsets = @{",
     ]
-    ordered = list(PATCHER_OFFSET_NAMES)
-    max_len = max((len(n) for n in ordered), default=0)
-    for name in ordered:
-        if name not in results:
-            continue
-        pad = " " * (max_len - len(name))
-        lines.append("    %s%s = 0x%X" % (name, pad, results[name]))
+    meta_rows = (
+        ("FinderVersion", '"discord_voice_node_offset_finder.py v%s"' % VERSION),
+        ("DiscordAppVersion", '"%s"' % app_ver),
+        ("Size", str(file_size)),
+        ("MD5", '"%s"' % md5),
+    )
+    meta_w = max(len(k) for k, _ in meta_rows)
+    for key, val in meta_rows:
+        lines.append("    %s%s = %s" % (key, " " * (meta_w - len(key)), val))
+    lines.append("}")
+    lines.append("")
+    lines.append("$Script:Offsets = @{")
+    lines.extend(_format_offset_table_lines(PATCHER_OFFSET_NAMES, results, indent="    "))
     lines.append("}")
     lines.append("")
     lines.append("# endregion Offsets")
@@ -4608,10 +4645,14 @@ PATCHER_DEBUG_GROUPS = {
 
 def format_windows_debug_mode(results=None):
     lines = []
+    name_w = PATCHER_OFFSET_NAME_WIDTH
     for group_name, patches in PATCHER_DEBUG_GROUPS.items():
         lines.append(f"  [{group_name}]")
-        for key, _ in patches:
-            lines.append(f"    {key}")
+        for key, _desc in patches:
+            if results and key in results:
+                lines.append(f"    {_format_offset_assignment(key, results[key], name_w, indent='')}")
+            else:
+                lines.append(f"    {key}")
         lines.append("")
     return "\n".join(lines).rstrip()
 
@@ -4631,19 +4672,23 @@ def format_linux_patcher_block(results, bin_info, file_path, file_size):
         "",
     ]
     ordered = WINDOWS_PATCHER_OFFSET_ORDER
+    prefix = "OFFSET_"
+    key_w = max(len(prefix + n) for n in ordered)
     for name in ordered:
+        key = prefix + name
+        pad = " " * max(0, key_w - len(key))
         if name in results:
             file_off = results[name] - adj
-            lines.append(f"OFFSET_{name}=0x{file_off:X}")
+            lines.append(f"{key}{pad} = {_format_rva(file_off)}")
         else:
-            lines.append(f"OFFSET_{name}=0x0")
+            lines.append(f"{key}{pad} = 0x00000000")
     extra_val = 0
     if "OpusEncoderConfig_SetMultiChannelStereo" in results:
         extra_val = results["OpusEncoderConfig_SetMultiChannelStereo"] - adj
-    extra = f"OFFSET_OpusEncoderConfig_SetMultiChannelStereo=0x{extra_val:X}"
+    extra = f"OFFSET_OpusEncoderConfig_SetMultiChannelStereo = {_format_rva(extra_val)}"
     inserted = False
     for i, line in enumerate(lines):
-        if line.startswith("OFFSET_AudioEncoderOpusConfig_Ctor_Channels_Imm02="):
+        if line.startswith("OFFSET_AudioEncoderOpusConfig_Ctor_Channels_Imm02"):
             lines.insert(i + 1, extra)
             inserted = True
             break
@@ -5221,20 +5266,27 @@ def main():
             print("\n" + "=" * 65)
             print("  OFFSET TABLE (config VA / file offset)")
             print("=" * 65)
-            print(f"  {'Name':<45s} {'config_va':>12s} {'file_offset':>12s}  tier")
-            print(f"  {'-'*45} {'-'*12} {'-'*12}  {'-'*20}")
+            print(f"  {'Name':<{OFFSET_LOG_NAME_WIDTH}s}  {'config_va':>10s}  {'file_offset':>10s}  tier")
+            print(f"  {'-' * OFFSET_LOG_NAME_WIDTH}  {'-' * 10}  {'-' * 10}  {'-' * 20}")
             for name in _all_offset_names():
                 if name in results:
                     config_off = results[name]
                     file_off = config_off - adj
                     tier = tiers_used.get(name, '?')
-                    print(f"  {name:<45s} 0x{config_off:>08X}  0x{file_off:>08X}  [{tier}]")
+                    print(
+                        f"  {name:<{OFFSET_LOG_NAME_WIDTH}s}  {_format_rva(config_off):>10s}  "
+                        f"{_format_rva(file_off):>10s}  [{tier}]"
+                    )
                 else:
-                    print(f"  {name:<45s} {'NOT FOUND':>12s}")
+                    print(f"  {name:<{OFFSET_LOG_NAME_WIDTH}s}  {'NOT FOUND':>10s}")
             print(f"\n  # Note: on Linux use the 'file_offset' values for direct binary patching")
 
         if results:
             if fmt == 'pe':
+                print("\n" + "=" * 65)
+                print("  WINDOWS PATCHER OFFSETS")
+                print("=" * 65)
+                print_pe_offset_summary(results, tiers_used=tiers_used, adj=adj)
                 win_block = format_windows_patcher_block(results, bin_info, file_path, file_size, discord_app_version=dapp_ver)
                 if not win_block and bin_info and file_size is not None:
                     ok, err = _validate_pe_offsets_for_patcher(results, bin_info, file_size)
@@ -5289,16 +5341,12 @@ def main():
 
             if fmt == 'elf':
                 offset_names = _all_offset_names()
-                max_name_len = max(len(n) for n in offset_names)
                 print(f"\n    # File offsets for direct binary patching (hex editor):")
                 print("    FileOffsets = @{")
-                for name in offset_names:
-                    pad = " " * (max_name_len - len(name))
-                    if name in results:
-                        file_off = results[name] - adj
-                        print(f"        {name}{pad} = 0x{file_off:X}")
-                    else:
-                        print(f"        {name}{pad} = 0x0")
+                for line in _format_offset_table_lines(
+                        offset_names, {n: results[n] - adj for n in offset_names if n in results},
+                        indent="        ", include_missing=True):
+                    print(line)
                 print("    }")
 
             stub_line = ""
