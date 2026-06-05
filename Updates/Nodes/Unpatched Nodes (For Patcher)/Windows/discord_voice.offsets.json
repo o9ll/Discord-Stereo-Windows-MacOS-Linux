@@ -1,0 +1,451 @@
+{
+  "tool": "discord_voice_node_offset_finder",
+  "version": "5.6.0",
+  "file": "C:/Users/Hallow_BBX/AppData/Local/Discord/app-1.0.9240/modules/discord_voice-1/discord_voice/discord_voice.node",
+  "file_size": 14681016,
+  "md5": "a3a24f26615b56c846e23045b98f1027",
+  "format": "pe",
+  "arch": "x86_64",
+  "file_offset_adjustment": "0xc00",
+  "offsets": {
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k": "0x57f428",
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k": "0x57f3f6",
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k": "0x57f413",
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp": "0x57f500",
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov": "0x57f506",
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k": "0xa8f31e",
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k": "0xa8f332",
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k": "0xa8f343",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k": "0x3cf167",
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio": "0x3cf869",
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k": "0x3cf85e",
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": "0x3cf854",
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10": "0x3cf845",
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": "0x3cfaf0",
+    "CapturedAudioProcessor_MonoDownmix_NopJmp": "0xdeab5",
+    "ChannelDownmix_Entry_Ret": "0x909460",
+    "CodecMismatchThrow_Entry_Ret": "0x2e7e30",
+    "CommitAudioCodec_ChannelCount_Imm02": "0x57efcb",
+    "CommitAudioCodec_SuccessBranch_Jmp": "0x57efd7",
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear": "0x5b163d",
+    "CreateAudioFrame_ChannelAssign_Mov": "0x128941",
+    "EnableBuiltInAEC_Entry_Ret": "0x8c690",
+    "EncoderOpusImpl_RelayClamp248k_Cmp": "0x58158c",
+    "EncoderOpusImpl_RelayClamp248k_Mov": "0x581591",
+    "GetMultipliedBitrate_Entry_IdentityRet": "0x581d90",
+    "GetMultipliedBitrate_Mulss_Nop7": "0x581dcd",
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp": "0x5838dc",
+    "MultiChannelRecreateEncoder_FecBranch_Jmp": "0x58375b",
+    "NetEqDelayManager_MsPerLoss_Imm0": "0xad615d",
+    "PacerBlockAudio_Flag_XorFalse": "0x71edf2",
+    "RecreateEncoderInstance_DtxBranch_Jmp": "0x5803b4",
+    "RecreateEncoderInstance_FecBranch_Jmp": "0x5802e7",
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k": "0x58430e",
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k": "0x5842dc",
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k": "0x5842f9",
+    "SelectSampleRate_Cmov48k_Nop3": "0x57f133",
+    "SetAutomaticGainControlConfig_Entry_Ret": "0x8d2c0",
+    "SetAutomaticGainControl_Entry_Ret": "0x8d660",
+    "SetBitrateClamp_Max248k_Cmp": "0x5843e6",
+    "SetBitrateClamp_Max248k_Mov": "0x5843ec",
+    "SetBitrate_Imm64_Imm248k": "0x581251",
+    "SetBitrate_OrMask_Nop3": "0x581259",
+    "SetDtx_EnableBranch_Jmp": "0x580b44",
+    "SetEchoCancellationPreEcho_Entry_Ret": "0x8cc90",
+    "SetEchoCancellation_Entry_Ret": "0x8c990",
+    "SetFec_EnableBranch_Jmp": "0x580a94",
+    "SetNoiseCancellationDuringProcessing_Entry_Ret": "0x8e510",
+    "SetNoiseCancellation_Entry_Ret": "0x8d980",
+    "SetNoiseSuppression_Entry_Ret": "0x8cfb0",
+    "SetTargetBitrate_ClampMax248k_Cmp": "0x581215",
+    "SetTargetBitrate_ClampMax248k_Mov": "0x58121b",
+    "SetTargetBitrate_Mulss_Nop6": "0x581291",
+    "WebRtcSplHighPass_Dispatch_MovRet": "0x58b240",
+    "dc_reject_Callback_InjectShellcode": "0x90d2d0",
+    "hp_cutoff_Callback_InjectShellcode": "0x90d0f0"
+  },
+  "resolution_tiers": {
+    "CommitAudioCodec_ChannelCount_Imm02": "primary",
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": "primary",
+    "CapturedAudioProcessor_MonoDownmix_NopJmp": "primary",
+    "SetBitrate_Imm64_Imm248k": "primary",
+    "SetTargetBitrate_Mulss_Nop6": "primary",
+    "GetMultipliedBitrate_Mulss_Nop7": "primary",
+    "GetMultipliedBitrate_Entry_IdentityRet": "extended(getmult-entry-exact)",
+    "CodecMismatchThrow_Entry_Ret": "primary",
+    "ChannelDownmix_Entry_Ret": "primary",
+    "CreateAudioFrame_ChannelAssign_Mov": "primary",
+    "hp_cutoff_Callback_InjectShellcode": "primary",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k": "primary",
+    "RecreateEncoderInstance_FecBranch_Jmp": "primary",
+    "MultiChannelRecreateEncoder_FecBranch_Jmp": "primary",
+    "SetFec_EnableBranch_Jmp": "primary",
+    "RecreateEncoderInstance_DtxBranch_Jmp": "primary",
+    "MultiChannelRecreateEncoder_DtxBranch_Jmp": "primary",
+    "SetDtx_EnableBranch_Jmp": "primary",
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10": "primary",
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio": "primary",
+    "CopyRedEncodeImpl_RedundantCopy_JmpNear": "primary",
+    "CommitAudioCodec_SuccessBranch_Jmp": "derived(CommitAudioCodec_ChannelCount_Imm02+0xC)",
+    "SelectSampleRate_Cmov48k_Nop3": "derived(CommitAudioCodec_ChannelCount_Imm02+0x168)",
+    "ApplySettings_BitrateCalcLow_Channels_Mov248k": "derived(CommitAudioCodec_ChannelCount_Imm02+0x42B)",
+    "ApplySettings_BitrateCalcMid_Channels_Mov248k": "derived(ApplySettings_BitrateCalcLow_Channels_Mov248k+0x1D)",
+    "ApplySettings_BitrateCalcHigh_Channels_Mov248k": "derived(ApplySettings_BitrateCalcLow_Channels_Mov248k+0x32)",
+    "ApplySettings_MaxAvgBitrateClamp248k_Cmp": "derived(ApplySettings_BitrateCalcLow_Channels_Mov248k+0x10A)",
+    "ApplySettings_MaxAvgBitrateClamp248k_Mov": "derived(ApplySettings_MaxAvgBitrateClamp248k_Cmp+0x6)",
+    "RecreateEncoder_BitrateCalcLow_Channels_Mov248k": "derived(RecreateEncoderInstance_FecBranch_Jmp+0x3FF5)",
+    "RecreateEncoder_BitrateCalcMid_Channels_Mov248k": "derived(RecreateEncoder_BitrateCalcLow_Channels_Mov248k+0x1D)",
+    "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k": "derived(RecreateEncoder_BitrateCalcLow_Channels_Mov248k+0x32)",
+    "SetBitrateClamp_Max248k_Cmp": "derived(RecreateEncoder_BitrateCalcHigh_Channels_Mov248k+0xD8)",
+    "SetBitrateClamp_Max248k_Mov": "derived(SetBitrateClamp_Max248k_Cmp+0x6)",
+    "SetTargetBitrate_ClampMax248k_Cmp": "derived(SetBitrate_Imm64_Imm248k+0x-3C)",
+    "SetTargetBitrate_ClampMax248k_Mov": "derived(SetTargetBitrate_ClampMax248k_Cmp+0x6)",
+    "EncoderOpusImpl_RelayClamp248k_Cmp": "derived(SetTargetBitrate_Mulss_Nop6+0x2FB)",
+    "EncoderOpusImpl_RelayClamp248k_Mov": "derived(EncoderOpusImpl_RelayClamp248k_Cmp+0x5)",
+    "WebRtcSplHighPass_Dispatch_MovRet": "derived(CommitAudioCodec_ChannelCount_Imm02+0xC275)",
+    "SetBitrate_OrMask_Nop3": "derived(SetBitrate_Imm64_Imm248k+0x8)",
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": "derived(AudioEncoderOpusConfig_Ctor_Channels_Imm02+0x29C)",
+    "dc_reject_Callback_InjectShellcode": "derived(hp_cutoff_Callback_InjectShellcode+0x1E0)",
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k": "derived(AudioEncoderOpusConfig_Ctor_Channels_Imm02+0xA)",
+    "NetEqDelayManager_MsPerLoss_Imm0": "extended(neteq-movabs)",
+    "PacerBlockAudio_Flag_XorFalse": "extended(pacer-blockaudio)",
+    "SetAutomaticGainControlConfig_Entry_Ret": "extended(discord-api+pe-export)",
+    "SetAutomaticGainControl_Entry_Ret": "extended(discord-api+pe-export)",
+    "SetNoiseSuppression_Entry_Ret": "extended(discord-api+pe-export)",
+    "SetEchoCancellation_Entry_Ret": "extended(discord-api+pe-export)",
+    "SetEchoCancellationPreEcho_Entry_Ret": "extended(discord-api+pe-export)",
+    "EnableBuiltInAEC_Entry_Ret": "extended(discord-api+pe-export)",
+    "SetNoiseCancellation_Entry_Ret": "extended(discord-api+pe-export)",
+    "SetNoiseCancellationDuringProcessing_Entry_Ret": "extended(discord-api+pe-export)",
+    "AudioBitrateAdaptorCalc32k_Channels_Mov248k": "extended(adaptor-r8d)",
+    "AudioBitrateAdaptorCalc48k_Channels_Mov248k": "extended(adaptor-r8d)",
+    "AudioBitrateAdaptorCalc60k_Channels_Mov248k": "extended(adaptor-r8d)"
+  },
+  "total_found": 55,
+  "total_expected": 45,
+  "linux_only_offset_names": [
+    "OpusEncoderConfig_SetMultiChannelStereo"
+  ],
+  "discord_app_version": "unspecified",
+  "discord_app_version_source": "none",
+  "pe_timestamp": 1780329443,
+  "pe_build_time": "2026-06-01T15:57:23+00:00",
+  "image_base": "0x180000000",
+  "patches": [
+    {
+      "name": "CreateAudioFrame_ChannelAssign_Mov",
+      "file_offset": 1211713,
+      "file_offset_hex": "0x127d41",
+      "expected_original": null,
+      "length": 4
+    },
+    {
+      "name": "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
+      "file_offset": 3992660,
+      "file_offset_hex": "0x3cec54",
+      "expected_original": "01",
+      "length": 1
+    },
+    {
+      "name": "CapturedAudioProcessor_MonoDownmix_NopJmp",
+      "file_offset": 908981,
+      "file_offset_hex": "0xddeb5",
+      "expected_original": "84C0",
+      "length": 2
+    },
+    {
+      "name": "CommitAudioCodec_ChannelCount_Imm02",
+      "file_offset": 5759947,
+      "file_offset_hex": "0x57e3cb",
+      "expected_original": "01",
+      "length": 1
+    },
+    {
+      "name": "CommitAudioCodec_SuccessBranch_Jmp",
+      "file_offset": 5759959,
+      "file_offset_hex": "0x57e3d7",
+      "expected_original": "75",
+      "length": 1
+    },
+    {
+      "name": "ApplySettings_BitrateCalcLow_Channels_Mov248k",
+      "file_offset": 5761014,
+      "file_offset_hex": "0x57e7f6",
+      "expected_original": null,
+      "length": 6
+    },
+    {
+      "name": "ApplySettings_BitrateCalcMid_Channels_Mov248k",
+      "file_offset": 5761043,
+      "file_offset_hex": "0x57e813",
+      "expected_original": null,
+      "length": 6
+    },
+    {
+      "name": "ApplySettings_BitrateCalcHigh_Channels_Mov248k",
+      "file_offset": 5761064,
+      "file_offset_hex": "0x57e828",
+      "expected_original": null,
+      "length": 6
+    },
+    {
+      "name": "RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+      "file_offset": 5781212,
+      "file_offset_hex": "0x5836dc",
+      "expected_original": null,
+      "length": 6
+    },
+    {
+      "name": "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+      "file_offset": 5781241,
+      "file_offset_hex": "0x5836f9",
+      "expected_original": null,
+      "length": 6
+    },
+    {
+      "name": "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+      "file_offset": 5781262,
+      "file_offset_hex": "0x58370e",
+      "expected_original": null,
+      "length": 6
+    },
+    {
+      "name": "SetBitrateClamp_Max248k_Cmp",
+      "file_offset": 5781478,
+      "file_offset_hex": "0x5837e6",
+      "expected_original": "81FB",
+      "length": 2
+    },
+    {
+      "name": "SetBitrateClamp_Max248k_Mov",
+      "file_offset": 5781484,
+      "file_offset_hex": "0x5837ec",
+      "expected_original": "B8",
+      "length": 1
+    },
+    {
+      "name": "AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+      "file_offset": 11069214,
+      "file_offset_hex": "0xa8e71e",
+      "expected_original": null,
+      "length": 7
+    },
+    {
+      "name": "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+      "file_offset": 11069234,
+      "file_offset_hex": "0xa8e732",
+      "expected_original": null,
+      "length": 7
+    },
+    {
+      "name": "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
+      "file_offset": 11069251,
+      "file_offset_hex": "0xa8e743",
+      "expected_original": null,
+      "length": 7
+    },
+    {
+      "name": "SetBitrate_Imm64_Imm248k",
+      "file_offset": 5768785,
+      "file_offset_hex": "0x580651",
+      "expected_original": null,
+      "length": 5
+    },
+    {
+      "name": "SetBitrate_OrMask_Nop3",
+      "file_offset": 5768793,
+      "file_offset_hex": "0x580659",
+      "expected_original": "4809C1",
+      "length": 3
+    },
+    {
+      "name": "SetTargetBitrate_Mulss_Nop6",
+      "file_offset": 5768849,
+      "file_offset_hex": "0x580691",
+      "expected_original": "F30F594481EC",
+      "length": 6
+    },
+    {
+      "name": "GetMultipliedBitrate_Mulss_Nop7",
+      "file_offset": 5771725,
+      "file_offset_hex": "0x5811cd",
+      "expected_original": "F3410F594488EC",
+      "length": 7
+    },
+    {
+      "name": "GetMultipliedBitrate_Entry_IdentityRet",
+      "file_offset": 5771664,
+      "file_offset_hex": "0x581190",
+      "expected_original": "89C8",
+      "length": 2
+    },
+    {
+      "name": "SetTargetBitrate_ClampMax248k_Cmp",
+      "file_offset": 5768725,
+      "file_offset_hex": "0x580615",
+      "expected_original": "81FA",
+      "length": 2
+    },
+    {
+      "name": "SetTargetBitrate_ClampMax248k_Mov",
+      "file_offset": 5768731,
+      "file_offset_hex": "0x58061b",
+      "expected_original": "BA",
+      "length": 1
+    },
+    {
+      "name": "ApplySettings_MaxAvgBitrateClamp248k_Cmp",
+      "file_offset": 5761280,
+      "file_offset_hex": "0x57e900",
+      "expected_original": "81FB",
+      "length": 2
+    },
+    {
+      "name": "ApplySettings_MaxAvgBitrateClamp248k_Mov",
+      "file_offset": 5761286,
+      "file_offset_hex": "0x57e906",
+      "expected_original": "B8",
+      "length": 1
+    },
+    {
+      "name": "EncoderOpusImpl_RelayClamp248k_Cmp",
+      "file_offset": 5769612,
+      "file_offset_hex": "0x58098c",
+      "expected_original": "3D",
+      "length": 1
+    },
+    {
+      "name": "EncoderOpusImpl_RelayClamp248k_Mov",
+      "file_offset": 5769617,
+      "file_offset_hex": "0x580991",
+      "expected_original": "BF",
+      "length": 1
+    },
+    {
+      "name": "SelectSampleRate_Cmov48k_Nop3",
+      "file_offset": 5760307,
+      "file_offset_hex": "0x57e533",
+      "expected_original": "0F42C1",
+      "length": 3
+    },
+    {
+      "name": "WebRtcSplHighPass_Dispatch_MovRet",
+      "file_offset": 5809728,
+      "file_offset_hex": "0x58a640",
+      "expected_original": null,
+      "length": 11
+    },
+    {
+      "name": "hp_cutoff_Callback_InjectShellcode",
+      "file_offset": 9487600,
+      "file_offset_hex": "0x90c4f0",
+      "expected_original": null,
+      "length": 256
+    },
+    {
+      "name": "dc_reject_Callback_InjectShellcode",
+      "file_offset": 9488080,
+      "file_offset_hex": "0x90c6d0",
+      "expected_original": null,
+      "length": 438
+    },
+    {
+      "name": "ChannelDownmix_Entry_Ret",
+      "file_offset": 9472096,
+      "file_offset_hex": "0x908860",
+      "expected_original": "41",
+      "length": 1
+    },
+    {
+      "name": "AudioEncoderOpusConfig_IsOK_MovTrueRet",
+      "file_offset": 3993328,
+      "file_offset_hex": "0x3ceef0",
+      "expected_original": "8B1131C0",
+      "length": 4
+    },
+    {
+      "name": "CodecMismatchThrow_Entry_Ret",
+      "file_offset": 3043888,
+      "file_offset_hex": "0x2e7230",
+      "expected_original": "41",
+      "length": 1
+    },
+    {
+      "name": "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
+      "file_offset": 3992670,
+      "file_offset_hex": "0x3cec5e",
+      "expected_original": "007D0000",
+      "length": 4
+    },
+    {
+      "name": "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
+      "file_offset": 3990887,
+      "file_offset_hex": "0x3ce567",
+      "expected_original": "007D0000",
+      "length": 4
+    },
+    {
+      "name": "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
+      "file_offset": 3992645,
+      "file_offset_hex": "0x3cec45",
+      "expected_original": "14",
+      "length": 1
+    },
+    {
+      "name": "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
+      "file_offset": 3992681,
+      "file_offset_hex": "0x3cec69",
+      "expected_original": "01",
+      "length": 1
+    },
+    {
+      "name": "RecreateEncoderInstance_FecBranch_Jmp",
+      "file_offset": 5764839,
+      "file_offset_hex": "0x57f6e7",
+      "expected_original": "75",
+      "length": 1
+    },
+    {
+      "name": "MultiChannelRecreateEncoder_FecBranch_Jmp",
+      "file_offset": 5778267,
+      "file_offset_hex": "0x582b5b",
+      "expected_original": "75",
+      "length": 1
+    },
+    {
+      "name": "SetFec_EnableBranch_Jmp",
+      "file_offset": 5766804,
+      "file_offset_hex": "0x57fe94",
+      "expected_original": "74",
+      "length": 1
+    },
+    {
+      "name": "RecreateEncoderInstance_DtxBranch_Jmp",
+      "file_offset": 5765044,
+      "file_offset_hex": "0x57f7b4",
+      "expected_original": "75",
+      "length": 1
+    },
+    {
+      "name": "MultiChannelRecreateEncoder_DtxBranch_Jmp",
+      "file_offset": 5778652,
+      "file_offset_hex": "0x582cdc",
+      "expected_original": "75",
+      "length": 1
+    },
+    {
+      "name": "SetDtx_EnableBranch_Jmp",
+      "file_offset": 5766980,
+      "file_offset_hex": "0x57ff44",
+      "expected_original": "74",
+      "length": 1
+    },
+    {
+      "name": "CopyRedEncodeImpl_RedundantCopy_JmpNear",
+      "file_offset": 5966397,
+      "file_offset_hex": "0x5b0a3d",
+      "expected_original": "0F84",
+      "length": 2
+    }
+  ]
+}
