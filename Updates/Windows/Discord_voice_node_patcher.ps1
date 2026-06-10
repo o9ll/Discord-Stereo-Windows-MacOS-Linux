@@ -21,7 +21,7 @@ try {
     }
 } catch { }
 
-$Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/Discord_voice_node_patcher.ps1"
+$Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/o9ll/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/Discord_voice_node_patcher.ps1"
 $Script:SCRIPT_VERSION = "18.2"
 
 # region Offsets (PASTE HERE)
@@ -362,7 +362,7 @@ $Script:Config = @{
     LogFile = "$env:TEMP\DiscordVoicePatcher\patcher.log"; ConfigFile = "$env:TEMP\DiscordVoicePatcher\config.json"
     MaxBackupsPerClient = 3
     MaxBackupAgeDays      = 45
-    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FWindows"
+    VoiceBackupAPI = "https://api.github.com/repos/o9ll/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FWindows"
     OffsetsMeta = $Script:OffsetsMeta
     Offsets     = $Script:Offsets
 }

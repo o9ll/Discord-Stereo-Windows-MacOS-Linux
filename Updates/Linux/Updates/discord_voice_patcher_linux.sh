@@ -34,7 +34,7 @@ TEMP_DIR="$CACHE_DIR/build"
 MAX_BACKUPS_PER_CLIENT="${MAX_BACKUPS_PER_CLIENT:-3}"
 MAX_BACKUP_AGE_DAYS="${MAX_BACKUP_AGE_DAYS:-45}"
 VOICE_BACKUP_DIR="${VOICE_BACKUP_DIR:-$CACHE_DIR/VoiceBackupLinux}"
-VOICE_BACKUP_API="${VOICE_BACKUP_API:-https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FLinux}"
+VOICE_BACKUP_API="${VOICE_BACKUP_API:-https://api.github.com/repos/o9ll/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FLinux}"
 # endregion Config
 
 # region Offsets (PASTE HERE)
