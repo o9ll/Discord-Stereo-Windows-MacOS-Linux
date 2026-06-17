@@ -6,16 +6,13 @@ fi
 
 set -euo pipefail
 
-SCRIPT_VERSION="8.8"
+SCRIPT_VERSION="9.0"
 SKIP_BACKUP=false
 RESTORE_MODE=false
 
-# region Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
 WHITE='\033[1;37m'; DIM='\033[0;90m'; BOLD='\033[1m'; NC='\033[0m'
-# endregion Colors
 
-# region Config
 SAMPLE_RATE=48000
 BITRATE=248
 BITRATE_BPS=$((BITRATE * 1000))
@@ -35,59 +32,52 @@ MAX_BACKUPS_PER_CLIENT="${MAX_BACKUPS_PER_CLIENT:-3}"
 MAX_BACKUP_AGE_DAYS="${MAX_BACKUP_AGE_DAYS:-45}"
 VOICE_BACKUP_DIR="${VOICE_BACKUP_DIR:-$CACHE_DIR/VoiceBackupLinux}"
 VOICE_BACKUP_API="${VOICE_BACKUP_API:-https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FLinux}"
-# endregion Config
 
 # region Offsets (PASTE HERE)
 
 EXPECTED_MD5="fb6684a550a7b5c0fdfe65ec954649a9"
 EXPECTED_SIZE=104160072
 
+# --- Stereo (channel forcing + downmix bypass) ---
 OFFSET_CommitAudioCodec_StereoCheck1_Imm0=0x39C300
 OFFSET_CommitAudioCodec_StereoCheck2_Imm0=0x398665
-
 OFFSET_CreateAudioFrame_Channels_MovImm2=0x390070
-
 OFFSET_CapturedAudioProcessor_MonoDownmix_NopJmp=0x35ECFC
-
 OFFSET_AudioEncoderOpusConfig_Ctor_Channels_Imm02=0x7699D5
 OFFSET_AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02=0x7693AE
+OFFSET_ChannelDownmix_Entry_Ret=0x98E420
 
-OFFSET_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k=0x7699DF
-OFFSET_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k=0x7693B8
-OFFSET_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10=0x7699C6
-OFFSET_AudioEncoderOpusConfig_Ctor_Application_ImmAudio=0x7699EA
-OFFSET_RecreateEncoderInstance_FecBranch_Jmp=0x99E1B7
-OFFSET_MultiChannelRecreateEncoder_FecBranch_Jmp=0x964958
-OFFSET_SetFec_EnableBranch_Jmp=0x99E9E6
-OFFSET_RecreateEncoderInstance_DtxBranch_Jmp=0x99E2A1
-OFFSET_MultiChannelRecreateEncoder_DtxBranch_Jmp=0x964A8E
-OFFSET_SetDtx_EnableBranch_Jmp=0x99EA86
-OFFSET_CopyRedEncodeImpl_RedundantCopy_JmpNear=0x7A6025
-
-OFFSET_RecreateEncoder_BitrateCalcLow_Channels_Mov248k=0x9652BD
-OFFSET_RecreateEncoder_BitrateCalcMid_Channels_Mov248k=0x9652DB
-OFFSET_RecreateEncoder_BitrateCalcHigh_Channels_Mov248k=0x9652F0
-OFFSET_MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k=0x99D630
-OFFSET_MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k=0x99D64E
-OFFSET_MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k=0x99D663
-OFFSET_AudioBitrateAdaptorCalc32k_Channels_Mov248k=0x973708
-OFFSET_AudioBitrateAdaptorCalc48k_Channels_Mov248k=0x973717
-OFFSET_AudioBitrateAdaptorCalc60k_Channels_Mov248k=0x973726
-
-OFFSET_ApplySettings_BitrateImul_Imm248k=0x39005C
-OFFSET_SetTargetBitrate_Mulss_Nop6=0x99F045
-OFFSET_GetMultipliedBitrate_Mulss_Nop7=0x99FB82
-
+# --- 48 kHz sample rate ---
 OFFSET_SelectSampleRate_Constant_Imm48k=0x39005A
 
-OFFSET_WebRtcSplHighPass_Entry_Ret=0x71F110
+# --- 248 kbps bitrate ---
+# Config defaults (cosmetic/template) ...
+OFFSET_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k=0x7699DF
+OFFSET_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k=0x7693B8
+# ... and the single authoritative lock: every opus/ms bitrate update funnels through
+# WebRtcOpus_SetBitRate -> opus_encoder_ctl(OPUS_SET_BITRATE). Force the value to 248000.
+# Replaces all RecreateEncoder/MultiChannel/Adaptor tier patches + mulss NOPs + ApplySettings.
+OFFSET_WebRtcOpus_SetBitRate_ForceImm=0x75A825
 
+# --- 10ms frames + kAudio application ---
+OFFSET_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10=0x7699C6
+OFFSET_AudioEncoderOpusConfig_Ctor_Application_ImmAudio=0x7699EA
+
+# --- Filter disable + config validation bypass ---
+OFFSET_WebRtcSplHighPass_Entry_Ret=0x71F110
+OFFSET_AudioEncoderOpusConfig_IsOK_MovTrueRet=0x769B70
+
+# --- Amplifier shellcode injection ---
 OFFSET_hp_cutoff_Callback_InjectShellcode=0x762640
 OFFSET_dc_reject_Callback_InjectShellcode=0x7627F0
 
-OFFSET_ChannelDownmix_Entry_Ret=0x98E420
-
-OFFSET_AudioEncoderOpusConfig_IsOK_MovTrueRet=0x769B70
+# --- Force CELT (MDCT/music) codec mode permanently (always applied, no flag) ---
+# opus_encoder_init: user_forced_mode (OpusEncoder+0x88) imm -1000 (OPUS_AUTO) -> 1002 (MODE_CELT_ONLY).
+# Covers both the regular Opus encoder and the multistream/multichannel encoder
+# (opus_multistream_encoder_init_impl calls opus_encoder_init).
+OFFSET_CELT_Force=0x75E7CA
+# opus_encoder_init: initial st->mode (OpusEncoder+0x3794) imm 1001 (HYBRID) -> 1002 (CELT_ONLY).
+OFFSET_CELT_DefaultMode=0x75E846
 
 FILE_OFFSET_ADJUSTMENT=0
 
@@ -96,24 +86,18 @@ REQUIRED_OFFSET_NAMES=(
     CreateAudioFrame_Channels_MovImm2
     CapturedAudioProcessor_MonoDownmix_NopJmp
     AudioEncoderOpusConfig_Ctor_Channels_Imm02 AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02
-    AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k
-    AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 AudioEncoderOpusConfig_Ctor_Application_ImmAudio
-    RecreateEncoderInstance_FecBranch_Jmp MultiChannelRecreateEncoder_FecBranch_Jmp SetFec_EnableBranch_Jmp
-    RecreateEncoderInstance_DtxBranch_Jmp MultiChannelRecreateEncoder_DtxBranch_Jmp SetDtx_EnableBranch_Jmp
-    CopyRedEncodeImpl_RedundantCopy_JmpNear
-    RecreateEncoder_BitrateCalcLow_Channels_Mov248k RecreateEncoder_BitrateCalcMid_Channels_Mov248k RecreateEncoder_BitrateCalcHigh_Channels_Mov248k
-    MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k
-    AudioBitrateAdaptorCalc32k_Channels_Mov248k AudioBitrateAdaptorCalc48k_Channels_Mov248k AudioBitrateAdaptorCalc60k_Channels_Mov248k
-    ApplySettings_BitrateImul_Imm248k
-    SetTargetBitrate_Mulss_Nop6 GetMultipliedBitrate_Mulss_Nop7
+    ChannelDownmix_Entry_Ret
     SelectSampleRate_Constant_Imm48k
-    WebRtcSplHighPass_Entry_Ret hp_cutoff_Callback_InjectShellcode dc_reject_Callback_InjectShellcode ChannelDownmix_Entry_Ret
-    AudioEncoderOpusConfig_IsOK_MovTrueRet
+    AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k
+    WebRtcOpus_SetBitRate_ForceImm
+    AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 AudioEncoderOpusConfig_Ctor_Application_ImmAudio
+    WebRtcSplHighPass_Entry_Ret AudioEncoderOpusConfig_IsOK_MovTrueRet
+    hp_cutoff_Callback_InjectShellcode dc_reject_Callback_InjectShellcode
+    CELT_Force CELT_DefaultMode
 )
 
 # endregion Offsets
 
-# region Validation bytes (anchors)
 ORIG_CreateAudioFrame_Channels_MovImm2='{0x49, 0x39, 0xC4, 0x4C, 0x0F, 0x43, 0xE0}'
 ORIG_CapturedAudioProcessor_MonoDownmix_NopJmp='{0x84, 0xC0, 0x74, 0x0D, 0x83, 0xBB, 0x80, 0x00, 0x00, 0x00, 0x09, 0x0F, 0x8F}'
 ORIG_SelectSampleRate_Constant_Imm48k='{0x41, 0xBD, 0x00, 0x7D, 0x00, 0x00}'
@@ -124,24 +108,24 @@ ORIG_hp_cutoff_Callback_InjectShellcode='{0x55, 0x48, 0x89, 0xE5}'
 ORIG_dc_reject_Callback_InjectShellcode='{0x55, 0x48, 0x89, 0xE5}'
 ORIG_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k='{0x00, 0x7D, 0x00, 0x00}'
 ORIG_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k='{0x00, 0x7D, 0x00, 0x00}'
-ORIG_ApplySettings_BitrateImul_Imm248k='{0x00, 0x7D, 0x00}'
-ORIG_SetTargetBitrate_Mulss_Nop6='{0xF3, 0x0F, 0x59, 0x44, 0x81, 0xEC}'
-ORIG_GetMultipliedBitrate_Mulss_Nop7='{0xF3, 0x0F, 0x59, 0x44, 0x81, 0xEC}'
-# endregion Validation bytes (anchors)
+# WebRtcOpus_SetBitRate prologue: push rbp; mov rbp,rsp; mov edx,esi (mov rbp,rsp is dead).
+ORIG_WebRtcOpus_SetBitRate_ForceImm='{0x55, 0x48, 0x89, 0xE5, 0x89, 0xF2}'
+# CELT: user_forced_mode imm32 = -1000 (OPUS_AUTO) in stock; 1002 (CELT_ONLY) when already patched.
+ORIG_CELT_Force='{0x18, 0xFC, 0xFF, 0xFF}'
+# CELT: init default st->mode imm32 = 1001 (HYBRID) in stock; 1002 (CELT_ONLY) when already patched.
+ORIG_CELT_DefaultMode='{0xE9, 0x03, 0x00, 0x00}'
 
 PATCH_SUCCESS=false
 
-# region Logging
 log_info()  { echo -e "${WHITE}[--]${NC} $1"; echo "[INFO] $1" >> "$LOG_FILE" 2>/dev/null; }
 log_ok()    { echo -e "${GREEN}[OK]${NC} $1"; echo "[OK] $1" >> "$LOG_FILE" 2>/dev/null; }
 log_warn()  { echo -e "${YELLOW}[!!]${NC} $1"; echo "[WARN] $1" >> "$LOG_FILE" 2>/dev/null; }
 log_error() { echo -e "${RED}[XX]${NC} $1"; echo "[ERROR] $1" >> "$LOG_FILE" 2>/dev/null; }
-# endregion Logging
 
 banner() {
     echo ""
     echo -e "${CYAN}===== Discord Voice Quality Patcher v${SCRIPT_VERSION} =====${NC}"
-    echo -e "${CYAN}      48 kHz | 248 kbps | Stereo${NC}"
+    echo -e "${CYAN}      48 kHz | 248 kbps | Stereo | Forced CELT${NC}"
     echo -e "${CYAN}      Platform: Linux | Multi-Client${NC}"
     echo -e "${CYAN}===============================================${NC}"
     echo ""
@@ -157,7 +141,6 @@ show_settings() {
     echo ""
 }
 
-# region CLI
 SILENT_MODE=false
 PATCH_ALL=false
 PATCH_LOCAL_ONLY=false
@@ -180,9 +163,9 @@ usage() {
     echo "or set DISCORD_VOICE_PATCHER_GITHUB_TOKEN / GITHUB_TOKEN for private forks or API limits."
     echo ""
     echo "Examples:"
-    echo "  $0
-    echo "  $0 --restore
-    echo "  $0 --silent
+    echo "  $0"
+    echo "  $0 --restore"
+    echo "  $0 --silent"
     exit 0
 }
 
@@ -201,16 +184,12 @@ for arg in "$@"; do
             ;;
     esac
 done
-# endregion CLI
 
-# region Init
 mkdir -p "$CACHE_DIR" "$BACKUP_DIR" "$TEMP_DIR"
 echo "=== Discord Voice Patcher Log ===" > "$LOG_FILE"
 echo "Started: $(date)" >> "$LOG_FILE"
 echo "Platform: Linux" >> "$LOG_FILE"
-# endregion Init
 
-# region Backup retention
 prune_voice_backups() {
     [[ -d "$BACKUP_DIR" ]] || return 0
     local removed=0 f bn k i j
@@ -233,7 +212,7 @@ prune_voice_backups() {
     for k in "${!seen[@]}"; do
         list=()
         mapfile -t list < <(ls -1t "$BACKUP_DIR"/discord_voice.node."${k}".*.backup 2>/dev/null || true)
-        local n=${
+        local n=${#list[@]}
         if (( n > MAX_BACKUPS_PER_CLIENT )); then
             for (( i = MAX_BACKUPS_PER_CLIENT; i < n; i++ )); do
                 rm -f "${list[$i]}" 2>/dev/null && removed=$((removed + 1)) || true
@@ -249,9 +228,9 @@ prune_voice_backups() {
         odd+=("$f")
     done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'discord_voice.node.*.backup' 2>/dev/null)
 
-    if (( ${
+    if (( ${#odd[@]} > MAX_BACKUPS_PER_CLIENT )); then
         mapfile -t odd < <(for f in "${odd[@]}"; do stat -c $'%Y\t%n' "$f" 2>/dev/null; done | sort -rn | cut -f2-)
-        for (( j = MAX_BACKUPS_PER_CLIENT; j < ${
+        for (( j = MAX_BACKUPS_PER_CLIENT; j < ${#odd[@]}; j++ )); do
             rm -f "${odd[$j]}" 2>/dev/null && removed=$((removed + 1)) || true
         done
     fi
@@ -262,9 +241,7 @@ prune_voice_backups() {
 }
 
 prune_voice_backups
-# endregion Backup retention
 
-# region Voice bundle (GitHub)
 download_linux_voice_bundle_from_github() {
     local py=""
     if command -v python3 &>/dev/null; then
@@ -442,9 +419,7 @@ install_linux_voice_bundle_for_client() {
     log_ok "Stock voice files installed"
     return 0
 }
-# endregion Voice bundle (GitHub)
 
-# region Discord process detection
 DISCORD_PIDS=""
 
 check_discord_running() {
@@ -520,7 +495,6 @@ handle_discord_running() {
             ;;
     esac
 }
-# endregion Discord process detection
 
 terminate_discord() {
     log_info "Closing Discord processes..."
@@ -566,7 +540,6 @@ terminate_discord() {
     return 0
 }
 
-# region Discord Client Detection
 declare -a CLIENT_NAMES=()
 declare -a CLIENT_NODES=()
 
@@ -645,7 +618,7 @@ find_discord_clients() {
         fi
     done
 
-    if [[ ${
+    if [[ ${#CLIENT_NAMES[@]} -eq 0 ]]; then
         log_error "No Discord installations found!"
         echo ""
         echo "Expected discord_voice.node in one of:"
@@ -666,13 +639,11 @@ find_discord_clients() {
         return 1
     fi
 
-    log_ok "Found ${
+    log_ok "Found ${#CLIENT_NAMES[@]} Discord installation(s)"
     return 0
 }
-# endregion Discord Client Detection
 
 
-# region Binary Verification
 verify_binary() {
     local node_path="$1"
     local name="$2"
@@ -724,10 +695,8 @@ verify_binary() {
     log_warn "MD5 != stock (often already patched). Continuing; patcher validates sites."
     return 0
 }
-# endregion Binary Verification
 
 
-# region Backup Management
 backup_node() {
     local source="$1"
     local client_name="$2"
@@ -783,7 +752,7 @@ restore_from_backup() {
         backups+=("$f")
     done < <(ls -1t "$BACKUP_DIR"/*.backup 2>/dev/null)
 
-    if [[ ${
+    if [[ ${#backups[@]} -eq 0 ]]; then
         log_error "No backups found in $BACKUP_DIR"
         exit 1
     fi
@@ -798,9 +767,9 @@ restore_from_backup() {
     done
     echo ""
 
-    read -rp "Select backup (1-${
+    read -rp "Select backup (1-${#backups[@]}): " sel
     if [[ -z "$sel" ]]; then sel=1; fi
-    if [[ ! "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel > ${
+    if [[ ! "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel > ${#backups[@]} )); then
         log_error "Invalid selection"; exit 1
     fi
     local backup_file="${backups[$(( sel - 1 ))]}"
@@ -824,9 +793,9 @@ restore_from_backup() {
         echo -e "      ${DIM}${CLIENT_NODES[$i]}${NC}"
     done
     echo ""
-    read -rp "Restore to which client? (1-${
+    read -rp "Restore to which client? (1-${#CLIENT_NAMES[@]}): " csel
     if [[ -z "$csel" ]]; then csel=1; fi
-    if [[ ! "$csel" =~ ^[0-9]+$ ]] || (( csel < 1 || csel > ${
+    if [[ ! "$csel" =~ ^[0-9]+$ ]] || (( csel < 1 || csel > ${#CLIENT_NAMES[@]} )); then
         log_error "Invalid client selection"; exit 1
     fi
     local target="${CLIENT_NODES[$(( csel - 1 ))]}"
@@ -855,10 +824,8 @@ restore_from_backup() {
     log_ok "Restored successfully! Restart Discord to apply."
     exit 0
 }
-# endregion Backup Management
 
 
-# region Compiler Detection
 COMPILER=""
 COMPILER_TYPE=""
 
@@ -888,10 +855,8 @@ find_compiler() {
     echo "  openSUSE:       sudo zypper install gcc-c++"
     return 1
 }
-# endregion Compiler Detection
 
 
-# region Source Code Generation
 
 generate_amplifier_source() {
     cat > "$TEMP_DIR/amplifier.cpp" << 'AMPEOF'
@@ -985,33 +950,17 @@ namespace Offsets {
     constexpr uint32_t AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02    = OFFSET_VAL_AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02;
     constexpr uint32_t AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k                = OFFSET_VAL_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k;
     constexpr uint32_t AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k                = OFFSET_VAL_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k;
+    constexpr uint32_t WebRtcOpus_SetBitRate_ForceImm     = OFFSET_VAL_WebRtcOpus_SetBitRate_ForceImm;
     constexpr uint32_t AudioEncoderOpusConfig_Ctor_FrameMs_Imm10        = OFFSET_VAL_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10;
     constexpr uint32_t AudioEncoderOpusConfig_Ctor_Application_ImmAudio   = OFFSET_VAL_AudioEncoderOpusConfig_Ctor_Application_ImmAudio;
-    constexpr uint32_t RecreateEncoderInstance_FecBranch_Jmp   = OFFSET_VAL_RecreateEncoderInstance_FecBranch_Jmp;
-    constexpr uint32_t MultiChannelRecreateEncoder_FecBranch_Jmp = OFFSET_VAL_MultiChannelRecreateEncoder_FecBranch_Jmp;
-    constexpr uint32_t SetFec_EnableBranch_Jmp               = OFFSET_VAL_SetFec_EnableBranch_Jmp;
-    constexpr uint32_t RecreateEncoderInstance_DtxBranch_Jmp   = OFFSET_VAL_RecreateEncoderInstance_DtxBranch_Jmp;
-    constexpr uint32_t MultiChannelRecreateEncoder_DtxBranch_Jmp = OFFSET_VAL_MultiChannelRecreateEncoder_DtxBranch_Jmp;
-    constexpr uint32_t SetDtx_EnableBranch_Jmp               = OFFSET_VAL_SetDtx_EnableBranch_Jmp;
-    constexpr uint32_t CopyRedEncodeImpl_RedundantCopy_JmpNear       = OFFSET_VAL_CopyRedEncodeImpl_RedundantCopy_JmpNear;
-    constexpr uint32_t RecreateEncoder_BitrateCalcLow_Channels_Mov248k = OFFSET_VAL_RecreateEncoder_BitrateCalcLow_Channels_Mov248k;
-    constexpr uint32_t RecreateEncoder_BitrateCalcMid_Channels_Mov248k = OFFSET_VAL_RecreateEncoder_BitrateCalcMid_Channels_Mov248k;
-    constexpr uint32_t RecreateEncoder_BitrateCalcHigh_Channels_Mov248k = OFFSET_VAL_RecreateEncoder_BitrateCalcHigh_Channels_Mov248k;
-    constexpr uint32_t MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k = OFFSET_VAL_MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k;
-    constexpr uint32_t MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k = OFFSET_VAL_MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k;
-    constexpr uint32_t MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k = OFFSET_VAL_MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k;
-    constexpr uint32_t AudioBitrateAdaptorCalc32k_Channels_Mov248k = OFFSET_VAL_AudioBitrateAdaptorCalc32k_Channels_Mov248k;
-    constexpr uint32_t AudioBitrateAdaptorCalc48k_Channels_Mov248k = OFFSET_VAL_AudioBitrateAdaptorCalc48k_Channels_Mov248k;
-    constexpr uint32_t AudioBitrateAdaptorCalc60k_Channels_Mov248k = OFFSET_VAL_AudioBitrateAdaptorCalc60k_Channels_Mov248k;
-    constexpr uint32_t ApplySettings_BitrateImul_Imm248k            = OFFSET_VAL_ApplySettings_BitrateImul_Imm248k;
-    constexpr uint32_t SetTargetBitrate_Mulss_Nop6         = OFFSET_VAL_SetTargetBitrate_Mulss_Nop6;
-    constexpr uint32_t GetMultipliedBitrate_Mulss_Nop7     = OFFSET_VAL_GetMultipliedBitrate_Mulss_Nop7;
     constexpr uint32_t SelectSampleRate_Constant_Imm48k                      = OFFSET_VAL_SelectSampleRate_Constant_Imm48k;
     constexpr uint32_t WebRtcSplHighPass_Entry_Ret                    = OFFSET_VAL_WebRtcSplHighPass_Entry_Ret;
     constexpr uint32_t hp_cutoff_Callback_InjectShellcode              = OFFSET_VAL_hp_cutoff_Callback_InjectShellcode;
     constexpr uint32_t dc_reject_Callback_InjectShellcode                          = OFFSET_VAL_dc_reject_Callback_InjectShellcode;
     constexpr uint32_t ChannelDownmix_Entry_Ret                       = OFFSET_VAL_ChannelDownmix_Entry_Ret;
     constexpr uint32_t AudioEncoderOpusConfig_IsOK_MovTrueRet        = OFFSET_VAL_AudioEncoderOpusConfig_IsOK_MovTrueRet;
+    constexpr uint32_t CELT_Force                        = OFFSET_VAL_CELT_Force;
+    constexpr uint32_t CELT_DefaultMode                  = OFFSET_VAL_CELT_DefaultMode;
     constexpr uint32_t FILE_OFFSET_ADJUSTMENT            = OFFSET_VAL_FileAdjustment;
 };
 class DiscordPatcher {
@@ -1069,374 +1018,134 @@ private:
         const unsigned char orig_enc1[]     = ORIG_VAL_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k;
         const unsigned char orig_enc2[]     = ORIG_VAL_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k;
         const unsigned char patch_enc248[]  = {PATCH_ENC4_VAL};
-        const unsigned char orig_ebm[]      = ORIG_VAL_ApplySettings_BitrateImul_Imm248k;
-        const unsigned char patch_ebm248[]  = {PATCH_ENC3_VAL};
-        const unsigned char orig_stb[]      = ORIG_VAL_SetTargetBitrate_Mulss_Nop6;
-        const unsigned char patch_mulss6[]  = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
-        const unsigned char orig_gmb[]      = ORIG_VAL_GetMultipliedBitrate_Mulss_Nop7;
-        const unsigned char orig_fec_on[]   = {0x01};
-        const unsigned char patch_fec_off[] = {0x00};
+        const unsigned char orig_setbr[]    = ORIG_VAL_WebRtcOpus_SetBitRate_ForceImm;
+        const unsigned char patch_setbr[]   = {0x55, 0xBA, PATCH_ENC4_VAL};  // push rbp ; mov edx, BITRATE_BPS
+        const unsigned char orig_celt[]     = ORIG_VAL_CELT_Force;
+        const unsigned char orig_celtmode[] = ORIG_VAL_CELT_DefaultMode;
+        const unsigned char patch_celt[]    = {0xEA, 0x03, 0x00, 0x00};
         const unsigned char ms20[]          = {0x14};
         const unsigned char ms10[]          = {0x0A};
         const unsigned char appAudio[]      = {0x01};
         const unsigned char appVoip[]       = {0x00};
-        const unsigned char orig_ch_one[]   = {0x01};
-        const unsigned char patch_ch_two[]  = {0x02};
-        const unsigned char orig_sdp[]      = {0x02};
-        const unsigned char patch_sdp[]     = {0x00};
+        const unsigned char ch_one[]        = {0x01};
+        const unsigned char ch_two[]        = {0x02};
+        const unsigned char sdp_off[]       = {0x02};
+        const unsigned char sdp_on[]        = {0x00};
         constexpr size_t injProbe = 24;
+        struct Site { const char* name; bool ok; };
+        bool o_ess1 = OrigOrAlt(Offsets::CommitAudioCodec_StereoCheck1_Imm0, sdp_off, 1, sdp_on, 1);
+        bool o_ess2 = OrigOrAlt(Offsets::CommitAudioCodec_StereoCheck2_Imm0, sdp_off, 1, sdp_on, 1);
         bool o_caf  = OrigOrAlt(Offsets::CreateAudioFrame_Channels_MovImm2, orig_caf, sizeof(orig_caf), patch_caf, sizeof(patch_caf));
         bool o_mdm  = OrigOrAlt(Offsets::CapturedAudioProcessor_MonoDownmix_NopJmp, orig_mdm, sizeof(orig_mdm), patch_mdm, sizeof(patch_mdm));
-        bool o_48   = OrigOrAlt(Offsets::SelectSampleRate_Constant_Imm48k, orig_48, sizeof(orig_48), patch_48, sizeof(patch_48));
-        bool o_isok = OrigOrAlt(Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, orig_isok, sizeof(orig_isok), patch_isok, sizeof(patch_isok));
+        bool o_ch1  = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, ch_one, 1, ch_two, 1);
+        bool o_ch2  = OrigOrAlt(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, ch_one, 1, ch_two, 1);
         bool o_dn   = OrigOrAlt(Offsets::ChannelDownmix_Entry_Ret, orig_dnmix, sizeof(orig_dnmix), patch_ret, sizeof(patch_ret));
+        bool o_48   = OrigOrAlt(Offsets::SelectSampleRate_Constant_Imm48k, orig_48, sizeof(orig_48), patch_48, sizeof(patch_48));
+        bool o_e1   = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, orig_enc1, sizeof(orig_enc1), patch_enc248, sizeof(patch_enc248));
+        bool o_e2   = OrigOrAlt(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, orig_enc2, sizeof(orig_enc2), patch_enc248, sizeof(patch_enc248));
+        bool o_setbr= OrigOrAlt(Offsets::WebRtcOpus_SetBitRate_ForceImm, orig_setbr, sizeof(orig_setbr), patch_setbr, sizeof(patch_setbr));
+        bool o_frame= OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, ms20, 1, ms10, 1);
+        bool o_app  = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appAudio, 1, appVoip, 1);
         bool o_hp   = OrigOrAlt(Offsets::WebRtcSplHighPass_Entry_Ret, orig_hp, sizeof(orig_hp), patch_ret, sizeof(patch_ret));
+        bool o_isok = OrigOrAlt(Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, orig_isok, sizeof(orig_isok), patch_isok, sizeof(patch_isok));
         bool o_hpc  = CheckBytes(Offsets::hp_cutoff_Callback_InjectShellcode, orig_hpcut, sizeof(orig_hpcut))
                    || CheckBytes(Offsets::hp_cutoff_Callback_InjectShellcode, (const unsigned char*)hp_cutoff, injProbe);
         bool o_dcr  = CheckBytes(Offsets::dc_reject_Callback_InjectShellcode, orig_dcrej, sizeof(orig_dcrej))
                    || CheckBytes(Offsets::dc_reject_Callback_InjectShellcode, (const unsigned char*)dc_reject, injProbe);
-        bool o_e1   = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, orig_enc1, sizeof(orig_enc1), patch_enc248, sizeof(patch_enc248));
-        bool o_e2   = OrigOrAlt(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, orig_enc2, sizeof(orig_enc2), patch_enc248, sizeof(patch_enc248));
-        bool o_ebm  = OrigOrAlt(Offsets::ApplySettings_BitrateImul_Imm248k, orig_ebm, sizeof(orig_ebm), patch_ebm248, sizeof(patch_ebm248));
-        bool o_stb  = OrigOrAlt(Offsets::SetTargetBitrate_Mulss_Nop6, orig_stb, sizeof(orig_stb), patch_mulss6, sizeof(patch_mulss6));
-        bool o_gmb  = OrigOrAlt(Offsets::GetMultipliedBitrate_Mulss_Nop7, orig_gmb, sizeof(orig_gmb), patch_mulss6, sizeof(patch_mulss6));
-        bool o_frame = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, ms20, 1, ms10, 1);
-        bool o_app   = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appAudio, 1, appVoip, 1);
-        bool o_ch1  = OrigOrAlt(Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, orig_ch_one, 1, patch_ch_two, 1);
-        bool o_ch2  = OrigOrAlt(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, orig_ch_one, 1, patch_ch_two, 1);
-        bool o_ess1 = OrigOrAlt(Offsets::CommitAudioCodec_StereoCheck1_Imm0, orig_sdp, 1, patch_sdp, 1);
-        bool o_ess2 = OrigOrAlt(Offsets::CommitAudioCodec_StereoCheck2_Imm0, orig_sdp, 1, patch_sdp, 1);
-        printf("  CreateAudioFrame_Channels_MovImm2 (0x%06X): %s\n", Offsets::CreateAudioFrame_Channels_MovImm2, o_caf ? "OK" : "MISMATCH");
-        printf("  CapturedAudioProcessor_MonoDownmix_NopJmp          (0x%06X): %s\n", Offsets::CapturedAudioProcessor_MonoDownmix_NopJmp, o_mdm ? "OK" : "MISMATCH");
-        printf("  SelectSampleRate_Constant_Imm48k           (0x%06X): %s\n", Offsets::SelectSampleRate_Constant_Imm48k, o_48 ? "OK" : "MISMATCH");
-        printf("  AudioEncoderConfigIsOk (0x%06X): %s\n", Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, o_isok ? "OK" : "MISMATCH");
-        printf("  ChannelDownmix_Entry_Ret            (0x%06X): %s\n", Offsets::ChannelDownmix_Entry_Ret, o_dn ? "OK" : "MISMATCH");
-        printf("  WebRtcSplHighPass_Entry_Ret         (0x%06X): %s\n", Offsets::WebRtcSplHighPass_Entry_Ret, o_hp ? "OK" : "MISMATCH");
-        printf("  hp_cutoff_Callback_InjectShellcode   (0x%06X): %s\n", Offsets::hp_cutoff_Callback_InjectShellcode, o_hpc ? "OK" : "MISMATCH");
-        printf("  dc_reject_Callback_InjectShellcode               (0x%06X): %s\n", Offsets::dc_reject_Callback_InjectShellcode, o_dcr ? "OK" : "MISMATCH");
-        printf("  AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k     (0x%06X): %s\n", Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, o_e1 ? "OK" : "MISMATCH");
-        printf("  AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k     (0x%06X): %s\n", Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, o_e2 ? "OK" : "MISMATCH");
-        printf("  ApplySettings_BitrateImul_Imm248k (0x%06X): %s\n", Offsets::ApplySettings_BitrateImul_Imm248k, o_ebm ? "OK" : "MISMATCH");
-        printf("  SetTargetBitrateMulss  (0x%06X): %s\n", Offsets::SetTargetBitrate_Mulss_Nop6, o_stb ? "OK" : "MISMATCH");
-        printf("  GetMultipliedBitrate   (0x%06X): %s\n", Offsets::GetMultipliedBitrate_Mulss_Nop7, o_gmb ? "OK" : "MISMATCH");
-        printf("  EncoderConfigFrameSize (0x%06X): %s\n", Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, o_frame ? "OK" : "MISMATCH");
-        printf("  EncoderConfigApplication (0x%06X): %s\n", Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, o_app ? "OK" : "MISMATCH");
-        printf("  OpusConfigSetChannels  (0x%06X): %s\n", Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, o_ch1 ? "OK" : "MISMATCH");
-        printf("  MultiChannelOpusCh     (0x%06X): %s\n", Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, o_ch2 ? "OK" : "MISMATCH");
-        printf("  CommitAudioCodec_StereoCheck1_Imm0  (0x%06X): %s\n", Offsets::CommitAudioCodec_StereoCheck1_Imm0, o_ess1 ? "OK" : "MISMATCH");
-        printf("  CommitAudioCodec_StereoCheck2_Imm0  (0x%06X): %s\n", Offsets::CommitAudioCodec_StereoCheck2_Imm0, o_ess2 ? "OK" : "MISMATCH");
-        if (!o_caf || !o_mdm || !o_48 || !o_isok || !o_dn || !o_hp || !o_hpc || !o_dcr ||
-            !o_e1 || !o_e2 || !o_ebm || !o_stb || !o_gmb || !o_frame || !o_app || !o_ch1 || !o_ch2 || !o_ess1 || !o_ess2) {
+        bool o_celt = OrigOrAlt(Offsets::CELT_Force, orig_celt, sizeof(orig_celt), patch_celt, sizeof(patch_celt));
+        bool o_celtm= OrigOrAlt(Offsets::CELT_DefaultMode, orig_celtmode, sizeof(orig_celtmode), patch_celt, sizeof(patch_celt));
+        Site sites[] = {
+            {"StereoCheck1 (CommitAudioCodec)", o_ess1}, {"StereoCheck2 (CommitAudioCodec)", o_ess2},
+            {"CreateAudioFrame channels",       o_caf},  {"MonoDownmix bypass",              o_mdm},
+            {"OpusConfig channels",             o_ch1},  {"MultiChannelOpusConfig channels", o_ch2},
+            {"ChannelDownmix ret",              o_dn},   {"SelectSampleRate 48k",            o_48},
+            {"OpusConfig bitrate",              o_e1},   {"MultiChannelOpusConfig bitrate",  o_e2},
+            {"WebRtcOpus_SetBitRate lock",      o_setbr},{"OpusConfig frame_ms",             o_frame},
+            {"OpusConfig application",          o_app},  {"WebRtcSplHighPass ret",           o_hp},
+            {"OpusConfig IsOk->true",           o_isok}, {"hp_cutoff inject",                o_hpc},
+            {"dc_reject inject",                o_dcr},  {"CELT_Force (user_forced_mode)",   o_celt},
+            {"CELT_DefaultMode (init mode)",    o_celtm},
+        };
+        bool allOk = true;
+        for (const auto& s : sites) {
+            printf("  %-34s : %s\n", s.name, s.ok ? "OK" : "MISMATCH");
+            if (!s.ok) allOk = false;
+        }
+        if (!allOk) {
             printf("\nERROR: Binary validation FAILED - unexpected bytes at patch sites.\n");
-            printf("This discord_voice.node does not match the expected build.\n");
-            printf("These offsets cannot be safely applied to a different version.\n");
+            printf("Offsets are version-specific; this discord_voice.node does not match the expected build.\n");
             return false;
         }
         printf("  Validation OK.\n\n");
         int patchCount = 0;
+        auto Apply = [&](uint32_t off, const char* bytes, size_t len) -> bool {
+            if (!PatchBytes(off, bytes, len)) return false;
+            patchCount++;
+            return true;
+        };
         printf("Applying patches...\n");
-        printf("  [1/5] Enabling stereo audio...\n");
-        if (!PatchBytes(Offsets::CommitAudioCodec_StereoCheck1_Imm0, "\x00", 1)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::CommitAudioCodec_StereoCheck2_Imm0, "\x00", 1)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::CreateAudioFrame_Channels_MovImm2, "\x49\xC7\xC4\x02\x00\x00\x00", 7)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::CapturedAudioProcessor_MonoDownmix_NopJmp,
-                        "\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\xE9", 13)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, "\x02", 1)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, "\x02", 1)) return false;
-        patchCount++;
-        printf("  [2/5] Enabling 48kHz sample rate...\n");
-        if (!PatchBytes(Offsets::SelectSampleRate_Constant_Imm48k, "\x41\xBD\x80\xBB\x00\x00", 6)) return false;
-        patchCount++;
-        printf("  [3/5] Setting bitrate to %dkbps...\n", BITRATE);
-        if (!PatchBytes(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, "PATCH_ENC4_ESC", 4)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, "PATCH_ENC4_ESC", 4)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::ApplySettings_BitrateImul_Imm248k, "PATCH_ENC3_ESC", 3)) return false;
-        patchCount++;
-        auto PatchFlatR13d248k7 = [&](uint32_t offset, const char* label) -> bool {
-            const unsigned char flat[] = {0x41, 0xBD, 0xC0, 0xC8, 0x03, 0x00, 0x90};
-            const unsigned char tierLow[] = {0x45, 0x69, 0xED, 0xE0, 0x2E, 0x00, 0x00};
-            const unsigned char tierMid[] = {0x45, 0x69, 0xED, 0x20, 0x4E, 0x00, 0x00};
-            const unsigned char tierHigh[] = {0x45, 0x69, 0xED, 0x00, 0x7D, 0x00, 0x00};
-            if (CheckBytes(offset, flat, 7)) return true;
-            if (!CheckBytes(offset, tierLow, 7) && !CheckBytes(offset, tierMid, 7) && !CheckBytes(offset, tierHigh, 7)) {
-                printf("ERROR: %s unexpected bytes\n", label);
-                return false;
-            }
-            return PatchBytes(offset, (const char*)flat, 7);
-        };
-        auto PatchFlatR13d248k6 = [&](uint32_t offset, const char* label) -> bool {
-            const unsigned char flat[] = {0x41, 0xBD, 0xC0, 0xC8, 0x03, 0x00};
-            const unsigned char tierLow[] = {0x69, 0xED, 0xE0, 0x2E, 0x00, 0x00};
-            const unsigned char tierMid[] = {0x69, 0xED, 0x20, 0x4E, 0x00, 0x00};
-            const unsigned char tierHigh[] = {0x69, 0xED, 0x00, 0x7D, 0x00, 0x00};
-            if (CheckBytes(offset, flat, 6)) return true;
-            if (!CheckBytes(offset, tierLow, 6) && !CheckBytes(offset, tierMid, 6) && !CheckBytes(offset, tierHigh, 6)) {
-                printf("ERROR: %s unexpected bytes\n", label);
-                return false;
-            }
-            return PatchBytes(offset, (const char*)flat, 6);
-        };
-        auto PatchFlatEdx248k = [&](uint32_t offset, const char* label) -> bool {
-            const unsigned char flat[] = {0xBA, 0xC0, 0xC8, 0x03, 0x00, 0x90};
-            const unsigned char tier32k[] = {0x69, 0xD6, 0x00, 0x7D, 0x00, 0x00};
-            const unsigned char tier48k[] = {0x69, 0xD6, 0x80, 0xBB, 0x00, 0x00};
-            const unsigned char tier60k[] = {0x69, 0xD6, 0x60, 0xEA, 0x00, 0x00};
-            if (CheckBytes(offset, flat, 6)) return true;
-            if (!CheckBytes(offset, tier32k, 6) && !CheckBytes(offset, tier48k, 6) && !CheckBytes(offset, tier60k, 6)) {
-                printf("ERROR: %s unexpected bytes\n", label);
-                return false;
-            }
-            return PatchBytes(offset, (const char*)flat, 6);
-        };
-        printf("  [BITRATE] RecreateEncoder tiers -> flat 248k...\n");
-        if (!PatchFlatR13d248k7(Offsets::RecreateEncoder_BitrateCalcLow_Channels_Mov248k, "RecreateEncoder tier-low")) return false;
-        patchCount++;
-        if (!PatchFlatR13d248k7(Offsets::RecreateEncoder_BitrateCalcMid_Channels_Mov248k, "RecreateEncoder tier-mid")) return false;
-        patchCount++;
-        if (!PatchFlatR13d248k7(Offsets::RecreateEncoder_BitrateCalcHigh_Channels_Mov248k, "RecreateEncoder tier-high")) return false;
-        patchCount++;
-        printf("  [BITRATE] MultiChannelRecreate tiers -> flat 248k...\n");
-        if (!PatchFlatR13d248k6(Offsets::MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k, "MultiChannel tier-low")) return false;
-        patchCount++;
-        if (!PatchFlatR13d248k6(Offsets::MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k, "MultiChannel tier-mid")) return false;
-        patchCount++;
-        if (!PatchFlatR13d248k6(Offsets::MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k, "MultiChannel tier-high")) return false;
-        patchCount++;
-        printf("  [BITRATE] AudioBitrateAdaptor tiers -> flat 248k...\n");
-        if (!PatchFlatEdx248k(Offsets::AudioBitrateAdaptorCalc32k_Channels_Mov248k, "AudioBitrateAdaptor tier32k")) return false;
-        patchCount++;
-        if (!PatchFlatEdx248k(Offsets::AudioBitrateAdaptorCalc48k_Channels_Mov248k, "AudioBitrateAdaptor tier48k")) return false;
-        patchCount++;
-        if (!PatchFlatEdx248k(Offsets::AudioBitrateAdaptorCalc60k_Channels_Mov248k, "AudioBitrateAdaptor tier60k")) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::SetTargetBitrate_Mulss_Nop6, "\x90\x90\x90\x90\x90\x90", 6)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::GetMultipliedBitrate_Mulss_Nop7, "\x90\x90\x90\x90\x90\x90", 6)) return false;
-        patchCount++;
-        printf("  [3b/5] Opus encoder config (10ms frames, kAudio)...\n");
+        printf("  [1/6] Stereo (channels + downmix bypass)...\n");
+        if (!Apply(Offsets::CommitAudioCodec_StereoCheck1_Imm0, "\x00", 1)) return false;
+        if (!Apply(Offsets::CommitAudioCodec_StereoCheck2_Imm0, "\x00", 1)) return false;
+        if (!Apply(Offsets::CreateAudioFrame_Channels_MovImm2, "\x49\xC7\xC4\x02\x00\x00\x00", 7)) return false;
+        if (!Apply(Offsets::CapturedAudioProcessor_MonoDownmix_NopJmp,
+                   "\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\xE9", 13)) return false;
+        if (!Apply(Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, "\x02", 1)) return false;
+        if (!Apply(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, "\x02", 1)) return false;
+        if (!Apply(Offsets::ChannelDownmix_Entry_Ret, "\xC3", 1)) return false;
+        printf("  [2/6] 48 kHz sample rate...\n");
+        if (!Apply(Offsets::SelectSampleRate_Constant_Imm48k, "\x41\xBD\x80\xBB\x00\x00", 6)) return false;
+        printf("  [3/6] %d kbps bitrate (config defaults + central SetBitRate lock)...\n", BITRATE);
+        if (!Apply(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, "PATCH_ENC4_ESC", 4)) return false;
+        if (!Apply(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, "PATCH_ENC4_ESC", 4)) return false;
+        // push rbp ; mov edx, BITRATE_BPS  -> forces opus_encoder_ctl(OPUS_SET_BITRATE) for every caller
+        if (!Apply(Offsets::WebRtcOpus_SetBitRate_ForceImm, "\x55\xBAPATCH_ENC4_ESC", 6)) return false;
+        printf("  [4/6] 10ms frames + kAudio application...\n");
+        if (!Apply(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, "\x0A", 1)) return false;
+        if (!Apply(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, "\x01", 1)) return false;
+        printf("  [5/6] Filter disable + config validation bypass...\n");
+        if (!Apply(Offsets::WebRtcSplHighPass_Entry_Ret, "\xC3", 1)) return false;
+        if (!Apply(Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, "\x48\xC7\xC0\x01\x00\x00\x00\xC3", 8)) return false;
+        printf("  [6/6] Force CELT (MDCT) codec + inject amplifier...\n");
+        if (!Apply(Offsets::CELT_Force, "\xEA\x03\x00\x00", 4)) return false;
+        if (!Apply(Offsets::CELT_DefaultMode, "\xEA\x03\x00\x00", 4)) return false;
+        if (!Apply(Offsets::hp_cutoff_Callback_InjectShellcode, (const char*)hp_cutoff, 0x180)) return false;
+        if (!Apply(Offsets::dc_reject_Callback_InjectShellcode, (const char*)dc_reject, 0x180)) return false;
         {
-            if (CheckBytes(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, ms10, 1)) {
-                printf("  frame_size_ms already 10\n");
-            } else if (!CheckBytes(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, ms20, 1)) {
-                printf("ERROR: AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, "\x0A", 1)) return false;
-            else patchCount++;
-            if (CheckBytes(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appAudio, 1)) {
-                printf("  application kAudio already set\n");
-            } else if (!CheckBytes(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appVoip, 1)) {
-                printf("ERROR: AudioEncoderOpusConfig_Ctor_Application_ImmAudio unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, "\x01", 1)) return false;
-            else patchCount++;
-        }
-        printf("  [3c/5] Disabling Opus FEC/DTX runtime...\n");
-        {
-            const unsigned char jnz[] = {0x75};
-            const unsigned char jz[] = {0x74};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, jmp, 1)) {
-                printf("  RecreateEncoder ForceDisableFec already patched\n");
-            } else if (!CheckBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, jnz, 1)) {
-                printf("ERROR: RecreateEncoderInstance_FecBranch_Jmp unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, "\xEB", 1)) return false;
-            else patchCount++;
-            if (CheckBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, jmp, 1)) {
-                printf("  MultiChannel Recreate ForceDisableFec already patched\n");
-            } else if (!CheckBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, jnz, 1)) {
-                printf("ERROR: MultiChannelRecreateEncoder_FecBranch_Jmp unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, "\xEB", 1)) return false;
-            else patchCount++;
-            if (CheckBytes(Offsets::SetFec_EnableBranch_Jmp, jmp, 1)) {
-                printf("  SetFec ForceDisable already patched\n");
-            } else if (!CheckBytes(Offsets::SetFec_EnableBranch_Jmp, jz, 1)) {
-                printf("ERROR: SetFec_EnableBranch_Jmp unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::SetFec_EnableBranch_Jmp, "\xEB", 1)) return false;
-            else patchCount++;
-            if (CheckBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, jmp, 1)) {
-                printf("  RecreateEncoder ForceDisableDtx already patched\n");
-            } else if (!CheckBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, jnz, 1)) {
-                printf("ERROR: RecreateEncoderInstance_DtxBranch_Jmp unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, "\xEB", 1)) return false;
-            else patchCount++;
-            if (CheckBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, jmp, 1)) {
-                printf("  MultiChannel Recreate ForceDisableDtx already patched\n");
-            } else if (!CheckBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, jnz, 1)) {
-                printf("ERROR: MultiChannelRecreateEncoder_DtxBranch_Jmp unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, "\xEB", 1)) return false;
-            else patchCount++;
-            if (CheckBytes(Offsets::SetDtx_EnableBranch_Jmp, jmp, 1)) {
-                printf("  SetDtx ForceDisable already patched\n");
-            } else if (!CheckBytes(Offsets::SetDtx_EnableBranch_Jmp, jz, 1)) {
-                printf("ERROR: SetDtx_EnableBranch_Jmp unexpected byte\n");
-                return false;
-            } else if (!PatchBytes(Offsets::SetDtx_EnableBranch_Jmp, "\xEB", 1)) return false;
-            else patchCount++;
-            {
-                unsigned char cur6[6] = {0};
-                uint32_t fo = Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear - Offsets::FILE_OFFSET_ADJUSTMENT;
-                if ((long long)(fo + 6) > fileSize) {
-                    printf("ERROR: CopyRedEncodeImpl_RedundantCopy_JmpNear out of range\n");
-                    return false;
-                }
-                memcpy(cur6, (char*)fileData + fo, 6);
-                if (cur6[0] == 0xE9) {
-                    printf("  CopyRed skip RED already patched\n");
-                } else if (cur6[0] != 0x0F || cur6[1] != 0x84) {
-                    printf("ERROR: CopyRedEncodeImpl_RedundantCopy_JmpNear unexpected bytes\n");
-                    return false;
-                } else {
-                    unsigned char patch6[6];
-                    patch6[0] = 0xE9;
-                    patch6[1] = cur6[2];
-                    patch6[2] = cur6[3];
-                    patch6[3] = cur6[4];
-                    patch6[4] = cur6[5];
-                    patch6[5] = 0x90;
-                    if (!PatchBytes(Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear, (const char*)patch6, 6)) return false;
-                    patchCount++;
-                }
-            }
-        }
-        printf("  [4/5] Disabling audio filters...\n");
-        if (!PatchBytes(Offsets::WebRtcSplHighPass_Entry_Ret, "\xC3", 1)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::ChannelDownmix_Entry_Ret, "\xC3", 1)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, "\x48\xC7\xC0\x01\x00\x00\x00\xC3", 8)) return false;
-        patchCount++;
-        printf("  [5/5] Injecting amplifier...\n");
-        if (!PatchBytes(Offsets::hp_cutoff_Callback_InjectShellcode, (const char*)hp_cutoff, 0x180)) return false;
-        patchCount++;
-        if (!PatchBytes(Offsets::dc_reject_Callback_InjectShellcode, (const char*)dc_reject, 0x180)) return false;
-        patchCount++;
-        {
-            uint32_t bitrate1 = 0, bitrate2 = 0;
-            if (!ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, bitrate1) ||
-                !ReadU32LE(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, bitrate2)) {
-                printf("ERROR: Failed to read back bitrate value for verification.\n");
+            uint32_t b1 = 0, b2 = 0, setbr = 0, frameMs = 0, appMode = 0;
+            uint32_t celtF = 0, celtD = 0, ch1 = 0, ch2 = 0;
+            ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, b1);
+            ReadU32LE(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, b2);
+            ReadU32LE(Offsets::WebRtcOpus_SetBitRate_ForceImm + 2, setbr);  // imm32 after 55 BA
+            ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, frameMs);
+            ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appMode);
+            ReadU32LE(Offsets::CELT_Force, celtF);
+            ReadU32LE(Offsets::CELT_DefaultMode, celtD);
+            ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, ch1);
+            ReadU32LE(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, ch2);
+            const unsigned char ret1[]  = {0xC3};
+            const unsigned char k48[]   = {0x41, 0xBD, 0x80, 0xBB, 0x00, 0x00};
+            const unsigned char isok4[] = {0x48, 0xC7, 0xC0, 0x01};
+            const unsigned char z1[]    = {0x00};
+            bool ok =
+                b1 == (uint32_t)BITRATE_BPS && b2 == (uint32_t)BITRATE_BPS && setbr == (uint32_t)BITRATE_BPS &&
+                (frameMs & 0xFF) == 10 && (appMode & 0xFF) == 1 &&
+                celtF == 1002u && celtD == 1002u && (ch1 & 0xFF) == 2 && (ch2 & 0xFF) == 2 &&
+                CheckBytes(Offsets::CommitAudioCodec_StereoCheck1_Imm0, z1, 1) &&
+                CheckBytes(Offsets::CommitAudioCodec_StereoCheck2_Imm0, z1, 1) &&
+                CheckBytes(Offsets::SelectSampleRate_Constant_Imm48k, k48, 6) &&
+                CheckBytes(Offsets::WebRtcSplHighPass_Entry_Ret, ret1, 1) &&
+                CheckBytes(Offsets::ChannelDownmix_Entry_Ret, ret1, 1) &&
+                CheckBytes(Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, isok4, 4);
+            if (!ok) {
+                printf("ERROR: Post-patch verification failed.\n");
+                printf("  bitrate cfg=%u/%u lock=%u (want %u) frame=%u app=%u celt=%u/%u ch=%u/%u\n",
+                       b1, b2, setbr, (unsigned)BITRATE_BPS, frameMs & 0xFF, appMode & 0xFF,
+                       celtF, celtD, ch1 & 0xFF, ch2 & 0xFF);
                 return false;
             }
-            if (bitrate1 != BITRATE_BPS || bitrate2 != BITRATE_BPS) {
-                printf("ERROR: Bitrate mismatch after patching (got %u / %u, expected %u)\n",
-                       bitrate1, bitrate2, (unsigned)BITRATE_BPS);
-                return false;
-            }
-            printf("  Verified bitrate (Opus & MultiChannelOpus): %u / %u bps\n", bitrate1, bitrate2);
-            const unsigned char nop6[] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
-            if (!CheckBytes(Offsets::SetTargetBitrate_Mulss_Nop6, nop6, 6) ||
-                !CheckBytes(Offsets::GetMultipliedBitrate_Mulss_Nop7, nop6, 6)) {
-                printf("ERROR: Actual encode mulss NOP verification failed\n");
-                return false;
-            }
-            printf("  Verified mulss NOPs OK\n");
-        }
-        {
-            uint32_t imulBitrateValue = 0;
-            if (!ReadU32LE(Offsets::ApplySettings_BitrateImul_Imm248k, imulBitrateValue)) {
-                printf("ERROR: Failed to read back ApplySettings bitrate immediate for verification.\n");
-                return false;
-            }
-            if ((imulBitrateValue & 0xFFFFFFu) != (BITRATE_BPS & 0xFFFFFFu)) {
-                printf("ERROR: ApplySettings bitrate immediate mismatch (got 0x%06X, expected 0x%06X)\n",
-                       (unsigned)(imulBitrateValue & 0xFFFFFFu), (unsigned)(BITRATE_BPS & 0xFFFFFFu));
-                return false;
-            }
-            const unsigned char flatR13_6[] = {0x41, 0xBD, 0xC0, 0xC8, 0x03, 0x00};
-            const unsigned char flatR13_7[] = {0x41, 0xBD, 0xC0, 0xC8, 0x03, 0x00, 0x90};
-            const unsigned char flatEdx[] = {0xBA, 0xC0, 0xC8, 0x03, 0x00, 0x90};
-            if (!CheckBytes(Offsets::RecreateEncoder_BitrateCalcLow_Channels_Mov248k, flatR13_7, 7) ||
-                !CheckBytes(Offsets::RecreateEncoder_BitrateCalcMid_Channels_Mov248k, flatR13_7, 7) ||
-                !CheckBytes(Offsets::RecreateEncoder_BitrateCalcHigh_Channels_Mov248k, flatR13_7, 7) ||
-                !CheckBytes(Offsets::MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k, flatR13_6, 6) ||
-                !CheckBytes(Offsets::MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k, flatR13_6, 6) ||
-                !CheckBytes(Offsets::MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k, flatR13_6, 6) ||
-                !CheckBytes(Offsets::AudioBitrateAdaptorCalc32k_Channels_Mov248k, flatEdx, 6) ||
-                !CheckBytes(Offsets::AudioBitrateAdaptorCalc48k_Channels_Mov248k, flatEdx, 6) ||
-                !CheckBytes(Offsets::AudioBitrateAdaptorCalc60k_Channels_Mov248k, flatEdx, 6)) {
-                printf("ERROR: Flat 248k bitrate patch verification failed.\n");
-                return false;
-            }
-            printf("  Verified ApplySettings + flat 248k bitrate locks (10 sites)\n");
-        }
-        {
-            uint32_t frameMs = 0, appMode = 0;
-            if (!ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, frameMs) ||
-                !ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appMode)) {
-                printf("ERROR: Failed to read back frame/application bytes for verification.\n");
-                return false;
-            }
-            if ((frameMs & 0xFFu) != 10u) {
-                printf("ERROR: frame_size_ms verification failed (got %u, expected 10)\n", (unsigned)(frameMs & 0xFFu));
-                return false;
-            }
-            if ((appMode & 0xFFu) != 1u) {
-                printf("ERROR: application mode verification failed (got %u, expected 1 kAudio)\n", (unsigned)(appMode & 0xFFu));
-                return false;
-            }
-            printf("  Verified 10ms frames + kAudio application mode\n");
-            const unsigned char fecJmp[] = {0xEB};
-            if (!CheckBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, fecJmp, 1) ||
-                !CheckBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, fecJmp, 1) ||
-                !CheckBytes(Offsets::SetFec_EnableBranch_Jmp, fecJmp, 1) ||
-                !CheckBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, fecJmp, 1) ||
-                !CheckBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, fecJmp, 1) ||
-                !CheckBytes(Offsets::SetDtx_EnableBranch_Jmp, fecJmp, 1)) {
-                printf("ERROR: FEC/DTX runtime lock verification failed\n");
-                return false;
-            }
-            unsigned char cr6[6] = {0};
-            uint32_t crFo = Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear - Offsets::FILE_OFFSET_ADJUSTMENT;
-            memcpy(cr6, (char*)fileData + crFo, 6);
-            if (cr6[0] != 0xE9) {
-                printf("ERROR: CopyRed verification failed\n");
-                return false;
-            }
-            printf("  Verified FEC/DTX/RED runtime force-disable\n");
-        }
-        {
-            uint32_t ch1 = 0, ch2 = 0;
-            (void)ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Channels_Imm02, ch1);
-            (void)ReadU32LE(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02, ch2);
-            if ((ch1 & 0xFF) != 2 || (ch2 & 0xFF) != 2) {
-                printf("ERROR: Stereo channel verification failed (got 0x%02X / 0x%02X, expected 0x02)\n",
-                       (unsigned)(ch1 & 0xFF), (unsigned)(ch2 & 0xFF));
-                return false;
-            }
-            printf("  Verified Opus channels byte: 0x%02X\n", (unsigned)(ch1 & 0xFF));
-            printf("  Verified MultiChannel Opus channels byte: 0x%02X\n", (unsigned)(ch2 & 0xFF));
-        }
-        {
-            const unsigned char ess0[] = {0x00};
-            const unsigned char caf[] = {0x49, 0xC7, 0xC4, 0x02, 0x00, 0x00, 0x00};
-            const unsigned char mdm[] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xE9};
-            const unsigned char k48[] = {0x41, 0xBD, 0x80, 0xBB, 0x00, 0x00};
-            const unsigned char ret[] = {0xC3};
-            const unsigned char isOk[] = {0x48, 0xC7, 0xC0, 0x01};
-            if (!CheckBytes(Offsets::CommitAudioCodec_StereoCheck1_Imm0, ess0, 1) ||
-                !CheckBytes(Offsets::CommitAudioCodec_StereoCheck2_Imm0, ess0, 1) ||
-                !CheckBytes(Offsets::CreateAudioFrame_Channels_MovImm2, caf, 7) ||
-                !CheckBytes(Offsets::CapturedAudioProcessor_MonoDownmix_NopJmp, mdm, 13) ||
-                !CheckBytes(Offsets::SelectSampleRate_Constant_Imm48k, k48, 6) ||
-                !CheckBytes(Offsets::WebRtcSplHighPass_Entry_Ret, ret, 1) ||
-                !CheckBytes(Offsets::ChannelDownmix_Entry_Ret, ret, 1) ||
-                !CheckBytes(Offsets::AudioEncoderOpusConfig_IsOK_MovTrueRet, isOk, 4)) {
-                printf("ERROR: Goal chain verification failed (stereo/48k/filter bypass)\n");
-                return false;
-            }
-            printf("  Verified goal chain: stereo, 48kHz, filter bypass, flat encode path\n");
+            printf("  Verified: stereo, 48kHz, %ukbps (central lock), 10ms/kAudio, CELT_ONLY, filters/validation.\n",
+                   (unsigned)BITRATE);
         }
         printf("\n  Applied %d patches successfully!\n", patchCount);
         return true;
@@ -1506,15 +1215,11 @@ PATCHEOF
 
     PATCH_ENC4_ARRAY=$(python3 -c "import struct; print(', '.join(f'0x{b:02X}' for b in struct.pack('<I', $BITRATE_BPS)))")
     PATCH_ENC4_ESC=$(python3 -c "import struct; print(''.join(f'\\\\x{b:02X}' for b in struct.pack('<I', $BITRATE_BPS)))")
-    PATCH_ENC3_ARRAY=$(python3 -c "import struct; print(', '.join(f'0x{b:02X}' for b in struct.pack('<I', $BITRATE_BPS)[:3]))")
-    PATCH_ENC3_ESC=$(python3 -c "import struct; print(''.join(f'\\\\x{b:02X}' for b in struct.pack('<I', $BITRATE_BPS)[:3]))")
     sed -i "s/SAMPLERATE_VAL/$SAMPLE_RATE/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/BITRATE_VAL/$BITRATE/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/BITRATE_BPS_VAL/$BITRATE_BPS/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/PATCH_ENC4_VAL/$PATCH_ENC4_ARRAY/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/PATCH_ENC4_ESC/$PATCH_ENC4_ESC/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/PATCH_ENC3_VAL/$PATCH_ENC3_ARRAY/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/PATCH_ENC3_ESC/$PATCH_ENC3_ESC/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_CommitAudioCodec_StereoCheck1_Imm0/${OFFSET_CommitAudioCodec_StereoCheck1_Imm0}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_CommitAudioCodec_StereoCheck2_Imm0/${OFFSET_CommitAudioCodec_StereoCheck2_Imm0}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_CreateAudioFrame_Channels_MovImm2/${OFFSET_CreateAudioFrame_Channels_MovImm2}/g" "$TEMP_DIR/patcher.cpp"
@@ -1523,33 +1228,17 @@ PATCHEOF
     sed -i "s/OFFSET_VAL_AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02/${OFFSET_AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k/${OFFSET_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k/${OFFSET_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k}/g" "$TEMP_DIR/patcher.cpp"
+    sed -i "s/OFFSET_VAL_WebRtcOpus_SetBitRate_ForceImm/${OFFSET_WebRtcOpus_SetBitRate_ForceImm}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10/${OFFSET_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_AudioEncoderOpusConfig_Ctor_Application_ImmAudio/${OFFSET_AudioEncoderOpusConfig_Ctor_Application_ImmAudio}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_RecreateEncoderInstance_FecBranch_Jmp/${OFFSET_RecreateEncoderInstance_FecBranch_Jmp}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_MultiChannelRecreateEncoder_FecBranch_Jmp/${OFFSET_MultiChannelRecreateEncoder_FecBranch_Jmp}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_SetFec_EnableBranch_Jmp/${OFFSET_SetFec_EnableBranch_Jmp}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_RecreateEncoderInstance_DtxBranch_Jmp/${OFFSET_RecreateEncoderInstance_DtxBranch_Jmp}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_MultiChannelRecreateEncoder_DtxBranch_Jmp/${OFFSET_MultiChannelRecreateEncoder_DtxBranch_Jmp}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_SetDtx_EnableBranch_Jmp/${OFFSET_SetDtx_EnableBranch_Jmp}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_CopyRedEncodeImpl_RedundantCopy_JmpNear/${OFFSET_CopyRedEncodeImpl_RedundantCopy_JmpNear}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_RecreateEncoder_BitrateCalcLow_Channels_Mov248k/${OFFSET_RecreateEncoder_BitrateCalcLow_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_RecreateEncoder_BitrateCalcMid_Channels_Mov248k/${OFFSET_RecreateEncoder_BitrateCalcMid_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_RecreateEncoder_BitrateCalcHigh_Channels_Mov248k/${OFFSET_RecreateEncoder_BitrateCalcHigh_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k/${OFFSET_MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k/${OFFSET_MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k/${OFFSET_MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_AudioBitrateAdaptorCalc32k_Channels_Mov248k/${OFFSET_AudioBitrateAdaptorCalc32k_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_AudioBitrateAdaptorCalc48k_Channels_Mov248k/${OFFSET_AudioBitrateAdaptorCalc48k_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_AudioBitrateAdaptorCalc60k_Channels_Mov248k/${OFFSET_AudioBitrateAdaptorCalc60k_Channels_Mov248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_ApplySettings_BitrateImul_Imm248k/${OFFSET_ApplySettings_BitrateImul_Imm248k}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_SetTargetBitrate_Mulss_Nop6/${OFFSET_SetTargetBitrate_Mulss_Nop6}/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/OFFSET_VAL_GetMultipliedBitrate_Mulss_Nop7/${OFFSET_GetMultipliedBitrate_Mulss_Nop7}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_SelectSampleRate_Constant_Imm48k/${OFFSET_SelectSampleRate_Constant_Imm48k}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_WebRtcSplHighPass_Entry_Ret/${OFFSET_WebRtcSplHighPass_Entry_Ret}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_hp_cutoff_Callback_InjectShellcode/${OFFSET_hp_cutoff_Callback_InjectShellcode}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_dc_reject_Callback_InjectShellcode/${OFFSET_dc_reject_Callback_InjectShellcode}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_ChannelDownmix_Entry_Ret/${OFFSET_ChannelDownmix_Entry_Ret}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_AudioEncoderOpusConfig_IsOK_MovTrueRet/${OFFSET_AudioEncoderOpusConfig_IsOK_MovTrueRet}/g" "$TEMP_DIR/patcher.cpp"
+    sed -i "s/OFFSET_VAL_CELT_Force/${OFFSET_CELT_Force}/g" "$TEMP_DIR/patcher.cpp"
+    sed -i "s/OFFSET_VAL_CELT_DefaultMode/${OFFSET_CELT_DefaultMode}/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/OFFSET_VAL_FileAdjustment/$FILE_OFFSET_ADJUSTMENT/g" "$TEMP_DIR/patcher.cpp"
 
     sed -i "s/ORIG_VAL_CreateAudioFrame_Channels_MovImm2/$ORIG_CreateAudioFrame_Channels_MovImm2/g" "$TEMP_DIR/patcher.cpp"
@@ -1562,14 +1251,12 @@ PATCHEOF
     sed -i "s/ORIG_VAL_dc_reject_Callback_InjectShellcode/$ORIG_dc_reject_Callback_InjectShellcode/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/ORIG_VAL_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k/$ORIG_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k/g" "$TEMP_DIR/patcher.cpp"
     sed -i "s/ORIG_VAL_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k/$ORIG_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/ORIG_VAL_ApplySettings_BitrateImul_Imm248k/$ORIG_ApplySettings_BitrateImul_Imm248k/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/ORIG_VAL_SetTargetBitrate_Mulss_Nop6/$ORIG_SetTargetBitrate_Mulss_Nop6/g" "$TEMP_DIR/patcher.cpp"
-    sed -i "s/ORIG_VAL_GetMultipliedBitrate_Mulss_Nop7/$ORIG_GetMultipliedBitrate_Mulss_Nop7/g" "$TEMP_DIR/patcher.cpp"
+    sed -i "s/ORIG_VAL_WebRtcOpus_SetBitRate_ForceImm/$ORIG_WebRtcOpus_SetBitRate_ForceImm/g" "$TEMP_DIR/patcher.cpp"
+    sed -i "s/ORIG_VAL_CELT_Force/$ORIG_CELT_Force/g" "$TEMP_DIR/patcher.cpp"
+    sed -i "s/ORIG_VAL_CELT_DefaultMode/$ORIG_CELT_DefaultMode/g" "$TEMP_DIR/patcher.cpp"
 }
-# endregion Source Code Generation
 
 
-# region Compilation
 compile_patcher() {
     log_info "Compiling patcher with $COMPILER_TYPE..." >&2
 
@@ -1604,10 +1291,8 @@ compile_patcher() {
     echo "$exe"
     return 0
 }
-# endregion Compilation
 
 
-# region Client Selection
 SELECTED_CLIENTS=""
 
 select_clients() {
@@ -1632,19 +1317,17 @@ select_clients() {
             if [[ ! "$choice" =~ ^[0-9]+$ ]]; then
                 log_error "Invalid selection"; exit 1
             fi
-            if (( choice >= 1 && choice <= ${
+            if (( choice >= 1 && choice <= ${#CLIENT_NAMES[@]} )); then
                 SELECTED_CLIENTS="$(( choice - 1 ))"
                 return 0
             fi
-            log_error "Selection out of range (1-${
+            log_error "Selection out of range (1-${#CLIENT_NAMES[@]})"
             ;;
         *) log_error "Invalid selection"; exit 1 ;;
     esac
 }
-# endregion Client Selection
 
 
-# region Patch a single client
 patch_client() {
     local idx="$1"
     local name="${CLIENT_NAMES[$idx]}"
@@ -1712,10 +1395,8 @@ patch_client() {
         return 1
     fi
 }
-# endregion Patch a single client
 
 
-# region Cleanup
 cleanup() {
     [[ -d "${TEMP_DIR:-}" ]] || return 0
 
@@ -1726,10 +1407,8 @@ cleanup() {
         rm -f "$TEMP_DIR/DiscordVoicePatcher" 2>/dev/null
     fi
 }
-# endregion Cleanup
 
 
-# region Main
 main() {
     banner
 
@@ -1764,7 +1443,7 @@ main() {
     local i
 
     if [[ "$SELECTED_CLIENTS" == "all" ]]; then
-        total=${
+        total=${#CLIENT_NAMES[@]}
         for i in "${!CLIENT_NAMES[@]}"; do
             if patch_client "$i"; then
                 success=$(( success + 1 ))
@@ -1801,4 +1480,3 @@ main() {
 
 trap cleanup EXIT
 main "$@"
-# endregion Main

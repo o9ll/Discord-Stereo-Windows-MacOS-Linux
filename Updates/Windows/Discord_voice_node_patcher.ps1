@@ -22,73 +22,68 @@ try {
 } catch { }
 
 $Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/Discord_voice_node_patcher.ps1"
-$Script:SCRIPT_VERSION = "18.3"
+$Script:SCRIPT_VERSION = "19.0"
 
 # region Offsets (PASTE HERE)
 
 $Script:OffsetsMeta = @{
-    FinderVersion     = "discord_voice_node_offset_finder.py v5.6.0"
-    DiscordAppVersion = "1.0.9240"
-    Size              = 14681016
-    MD5               = "a3a24f26615b56c846e23045b98f1027"
+    FinderVersion     = "discord_voice_node_offset_finder.py v5.8.0"
+    DiscordAppVersion = "1.0.9241"
+    Size              = 14752184
+    MD5               = "02273979d3817dcff123da9f3e457867"
 }
 
 $Script:Offsets = @{
-    CreateAudioFrame_ChannelAssign_Mov                      = 0x00128941
-    AudioEncoderOpusConfig_Ctor_Channels_Imm02              = 0x003CF854
-    CapturedAudioProcessor_MonoDownmix_NopJmp               = 0x000DEAB5
-    CommitAudioCodec_ChannelCount_Imm02                     = 0x0057EFCB
-    CommitAudioCodec_SuccessBranch_Jmp                      = 0x0057EFD7
-    ApplySettings_BitrateCalcLow_Channels_Mov248k           = 0x0057F3F6
-    ApplySettings_BitrateCalcMid_Channels_Mov248k           = 0x0057F413
-    ApplySettings_BitrateCalcHigh_Channels_Mov248k          = 0x0057F428
-    RecreateEncoder_BitrateCalcLow_Channels_Mov248k         = 0x005842DC
-    RecreateEncoder_BitrateCalcMid_Channels_Mov248k         = 0x005842F9
-    RecreateEncoder_BitrateCalcHigh_Channels_Mov248k        = 0x0058430E
-    SetBitrateClamp_Max248k_Cmp                             = 0x005843E6
-    SetBitrateClamp_Max248k_Mov                             = 0x005843EC
-    AudioBitrateAdaptorCalc32k_Channels_Mov248k             = 0x00A8F31E
-    AudioBitrateAdaptorCalc48k_Channels_Mov248k             = 0x00A8F332
-    AudioBitrateAdaptorCalc60k_Channels_Mov248k             = 0x00A8F343
-    SetBitrate_Imm64_Imm248k                                = 0x00581251
-    SetBitrate_OrMask_Nop3                                  = 0x00581259
-    SetTargetBitrate_Mulss_Nop6                             = 0x00581291
-    GetMultipliedBitrate_Mulss_Nop7                         = 0x00581DCD
-    GetMultipliedBitrate_Entry_IdentityRet                  = 0x00581D90
-    SetTargetBitrate_ClampMax248k_Cmp                       = 0x00581215
-    SetTargetBitrate_ClampMax248k_Mov                       = 0x0058121B
-    ApplySettings_MaxAvgBitrateClamp248k_Cmp                = 0x0057F500
-    ApplySettings_MaxAvgBitrateClamp248k_Mov                = 0x0057F506
-    EncoderOpusImpl_RelayClamp248k_Cmp                      = 0x0058158C
-    EncoderOpusImpl_RelayClamp248k_Mov                      = 0x00581591
-    SelectSampleRate_Cmov48k_Nop3                           = 0x0057F133
-    WebRtcSplHighPass_Dispatch_MovRet                       = 0x0058B240
-    hp_cutoff_Callback_InjectShellcode                      = 0x0090D0F0
-    dc_reject_Callback_InjectShellcode                      = 0x0090D2D0
-    ChannelDownmix_Entry_Ret                                = 0x00909460
-    AudioEncoderOpusConfig_IsOK_MovTrueRet                  = 0x003CFAF0
-    CodecMismatchThrow_Entry_Ret                            = 0x002E7E30
-    AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k             = 0x003CF85E
-    AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k = 0x003CF167
-    AudioEncoderOpusConfig_Ctor_FrameMs_Imm10               = 0x003CF845
-    AudioEncoderOpusConfig_Ctor_Application_ImmAudio        = 0x003CF869
-    RecreateEncoderInstance_FecBranch_Jmp                   = 0x005802E7
-    MultiChannelRecreateEncoder_FecBranch_Jmp               = 0x0058375B
-    SetFec_EnableBranch_Jmp                                 = 0x00580A94
-    RecreateEncoderInstance_DtxBranch_Jmp                   = 0x005803B4
-    MultiChannelRecreateEncoder_DtxBranch_Jmp               = 0x005838DC
-    SetDtx_EnableBranch_Jmp                                 = 0x00580B44
-    CopyRedEncodeImpl_RedundantCopy_JmpNear                 = 0x005B163D
-    NetEqDelayManager_MsPerLoss_Imm0                        = 0x00AD615D
-    PacerBlockAudio_Flag_XorFalse                           = 0x0071EDF2
-    SetAutomaticGainControlConfig_Entry_Ret                 = 0x0008D2C0
-    SetAutomaticGainControl_Entry_Ret                       = 0x0008D660
-    SetNoiseSuppression_Entry_Ret                           = 0x0008CFB0
-    SetEchoCancellation_Entry_Ret                           = 0x0008C990
-    SetEchoCancellationPreEcho_Entry_Ret                    = 0x0008CC90
-    EnableBuiltInAEC_Entry_Ret                              = 0x0008C690
-    SetNoiseCancellation_Entry_Ret                          = 0x0008D980
-    SetNoiseCancellationDuringProcessing_Entry_Ret          = 0x0008E510
+    CreateAudioFrame_ChannelAssign_Mov                      = 0x0012F7F1
+    AudioEncoderOpusConfig_Ctor_Channels_Imm02              = 0x003DBEE4
+    CapturedAudioProcessor_MonoDownmix_NopJmp               = 0x000E1286
+    CommitAudioCodec_ChannelCount_Imm02                     = 0x0058E67B
+    CommitAudioCodec_SuccessBranch_Jmp                      = 0x0058E687
+    ApplySettings_BitrateCalcLow_Channels_Mov248k           = 0x0058EAA6
+    ApplySettings_BitrateCalcMid_Channels_Mov248k           = 0x0058EAC3
+    ApplySettings_BitrateCalcHigh_Channels_Mov248k          = 0x0058EAD8
+    RecreateEncoder_BitrateCalcLow_Channels_Mov248k         = 0x0059398C
+    RecreateEncoder_BitrateCalcMid_Channels_Mov248k         = 0x005939A9
+    RecreateEncoder_BitrateCalcHigh_Channels_Mov248k        = 0x005939BE
+    SetBitrateClamp_Max248k_Cmp                             = 0x00593A96
+    SetBitrateClamp_Max248k_Mov                             = 0x00593A9C
+    AudioBitrateAdaptorCalc32k_Channels_Mov248k             = 0x00A9E8DE
+    AudioBitrateAdaptorCalc48k_Channels_Mov248k             = 0x00A9E8F2
+    AudioBitrateAdaptorCalc60k_Channels_Mov248k             = 0x00A9E903
+    SetBitrate_Imm64_Imm248k                                = 0x00590901
+    SetBitrate_OrMask_Nop3                                  = 0x00590909
+    SetTargetBitrate_Mulss_Nop6                             = 0x00590941
+    GetMultipliedBitrate_Mulss_Nop7                         = 0x0059147D
+    GetMultipliedBitrate_Entry_IdentityRet                  = 0x00591440
+    SetTargetBitrate_ClampMax248k_Cmp                       = 0x005908C5
+    SetTargetBitrate_ClampMax248k_Mov                       = 0x005908CB
+    ApplySettings_MaxAvgBitrateClamp248k_Cmp                = 0x0058EBB0
+    ApplySettings_MaxAvgBitrateClamp248k_Mov                = 0x0058EBB6
+    EncoderOpusImpl_RelayClamp248k_Cmp                      = 0x00590C3C
+    EncoderOpusImpl_RelayClamp248k_Mov                      = 0x00590C41
+    SelectSampleRate_Cmov48k_Nop3                           = 0x0058E7E3
+    WebRtcSplHighPass_Dispatch_MovRet                       = 0x0059A8F0
+    hp_cutoff_Callback_InjectShellcode                      = 0x0091C6F0
+    dc_reject_Callback_InjectShellcode                      = 0x0091C8D0
+    ChannelDownmix_Entry_Ret                                = 0x00918A60
+    AudioEncoderOpusConfig_IsOK_MovTrueRet                  = 0x003DC180
+    CodecMismatchThrow_Entry_Ret                            = 0x002F3EF0
+    AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k             = 0x003DBEEE
+    AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k = 0x003DB7F7
+    AudioEncoderOpusConfig_Ctor_FrameMs_Imm10               = 0x003DBED5
+    AudioEncoderOpusConfig_Ctor_Application_ImmAudio        = 0x003DBEF9
+    CELT_Force                                              = 0x00918858
+    CELT_DefaultMode                                        = 0x009188D4
+    NetEqDelayManager_MsPerLoss_Imm0                        = 0x00AE571D
+    PacerBlockAudio_Flag_XorFalse                           = 0x0072E3F2
+    SetAutomaticGainControlConfig_Entry_Ret                 = 0x0008E620
+    SetAutomaticGainControl_Entry_Ret                       = 0x0008E9C0
+    SetNoiseSuppression_Entry_Ret                           = 0x0008E310
+    SetEchoCancellation_Entry_Ret                           = 0x0008D9E0
+    SetEchoCancellationPreEcho_Entry_Ret                    = 0x0008DCE0
+    EnableBuiltInAEC_Entry_Ret                              = 0x0008D6E0
+    SetNoiseCancellation_Entry_Ret                          = 0x0008ECE0
+    SetNoiseCancellationDuringProcessing_Entry_Ret          = 0x0008F870
 }
 
 # endregion Offsets
@@ -111,9 +106,7 @@ $Script:RequiredOffsetNames = @(
     "AudioEncoderOpusConfig_IsOK_MovTrueRet", "CodecMismatchThrow_Entry_Ret",
     "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k", "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
     "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10", "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
-    "RecreateEncoderInstance_FecBranch_Jmp", "MultiChannelRecreateEncoder_FecBranch_Jmp", "SetFec_EnableBranch_Jmp",
-    "RecreateEncoderInstance_DtxBranch_Jmp", "MultiChannelRecreateEncoder_DtxBranch_Jmp", "SetDtx_EnableBranch_Jmp",
-    "CopyRedEncodeImpl_RedundantCopy_JmpNear",
+    "CELT_Force", "CELT_DefaultMode",
     "NetEqDelayManager_MsPerLoss_Imm0", "PacerBlockAudio_Flag_XorFalse",
     "SetAutomaticGainControlConfig_Entry_Ret",
     "SetAutomaticGainControl_Entry_Ret",
@@ -125,7 +118,6 @@ $Script:RequiredOffsetNames = @(
     "SetNoiseCancellationDuringProcessing_Entry_Ret"
 )
 
-# region Patch Definitions
 
 $Script:PatchGroups = [ordered]@{
     STEREO = [ordered]@{
@@ -174,18 +166,13 @@ $Script:PatchGroups = [ordered]@{
         AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k = @{ Name = "AudioEncoderOpusConfig::ctor | Bitrate | imm 248k"; Hex = "C0 C8 03 00" }
         AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k = @{ Name = "AudioEncoderMultiChannelOpusConfig::ctor | Bitrate | imm 248k"; Hex = "C0 C8 03 00" }
     }
-    FEC = [ordered]@{
-        RecreateEncoderInstance_FecBranch_Jmp = @{ Name = "RecreateEncoderInstance | FecBranch | jmp"; Hex = "EB" }
-        MultiChannelRecreateEncoder_FecBranch_Jmp = @{ Name = "MultiChannelRecreateEncoder | FecBranch | jmp"; Hex = "EB" }
-        SetFec_EnableBranch_Jmp = @{ Name = "SetFec | EnableBranch | jmp"; Hex = "EB" }
-    }
     OPUS = [ordered]@{
         AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 = @{ Name = "AudioEncoderOpusConfig::ctor | FrameMs | imm 10"; Hex = "0A" }
         AudioEncoderOpusConfig_Ctor_Application_ImmAudio = @{ Name = "AudioEncoderOpusConfig::ctor | Application | imm kAudio"; Hex = "01" }
-        RecreateEncoderInstance_DtxBranch_Jmp = @{ Name = "RecreateEncoderInstance | DtxBranch | jmp"; Hex = "EB" }
-        MultiChannelRecreateEncoder_DtxBranch_Jmp = @{ Name = "MultiChannelRecreateEncoder | DtxBranch | jmp"; Hex = "EB" }
-        SetDtx_EnableBranch_Jmp = @{ Name = "SetDtx | EnableBranch | jmp"; Hex = "EB" }
-        CopyRedEncodeImpl_RedundantCopy_JmpNear = @{ Name = "CopyRedEncodeImpl | RedundantCopy | jmp near"; Hex = "E9 +rel32 +90" }
+    }
+    CELT = [ordered]@{
+        CELT_Force = @{ Name = "opus_encoder_init | user_forced_mode -1000->1002 (CELT_ONLY)"; Hex = "EA 03 00 00" }
+        CELT_DefaultMode = @{ Name = "opus_encoder_init | default st->mode 1001->1002 (CELT_ONLY)"; Hex = "EA 03 00 00" }
     }
     NETEQ = [ordered]@{
         NetEqDelayManager_MsPerLoss_Imm0 = @{ Name = "NetEqDelayManager | MsPerLoss | imm 0 (optional)"; Hex = "48 B8 00 00 00 00 00 00 00 00" }
@@ -228,14 +215,11 @@ $Script:LockedBitratePatches = @(
 )
 $Script:LockedOpusPatches = @(
     'AudioEncoderOpusConfig_Ctor_FrameMs_Imm10',
-    'AudioEncoderOpusConfig_Ctor_Application_ImmAudio',
-    'RecreateEncoderInstance_FecBranch_Jmp',
-    'MultiChannelRecreateEncoder_FecBranch_Jmp',
-    'SetFec_EnableBranch_Jmp',
-    'RecreateEncoderInstance_DtxBranch_Jmp',
-    'MultiChannelRecreateEncoder_DtxBranch_Jmp',
-    'SetDtx_EnableBranch_Jmp',
-    'CopyRedEncodeImpl_RedundantCopy_JmpNear'
+    'AudioEncoderOpusConfig_Ctor_Application_ImmAudio'
+)
+$Script:LockedCeltPatches = @(
+    'CELT_Force',
+    'CELT_DefaultMode'
 )
 $Script:LockedStereoPatches = @(
     'CommitAudioCodec_ChannelCount_Imm02', 'CommitAudioCodec_SuccessBranch_Jmp',
@@ -252,7 +236,7 @@ $Script:DebugModeActive = $false
 
 function Get-LockedGoalPatches {
     $list = [System.Collections.Generic.List[string]]::new()
-    foreach ($k in ($Script:LockedBitratePatches + $Script:LockedOpusPatches + $Script:LockedStereoPatches + $Script:LockedFlatPatches + $Script:LockedIntegrityPatches)) {
+    foreach ($k in ($Script:LockedBitratePatches + $Script:LockedOpusPatches + $Script:LockedCeltPatches + $Script:LockedStereoPatches + $Script:LockedFlatPatches + $Script:LockedIntegrityPatches)) {
         if (-not $list.Contains($k)) { [void]$list.Add($k) }
     }
     if ($env:DISCORD_STEREO_DISABLE_API_LOCK_PATCHES -ne '1') {
@@ -303,9 +287,7 @@ if ($env:DISCORD_STEREO_DISABLE_API_LOCK_PATCHES -eq '1') {
     foreach ($k in $Script:PatchGroups.DISCORD_API_LOCK.Keys) { $Script:SelectedPatches[$k] = $false }
 }
 
-# endregion Patch Definitions
 
-# region Console
 function Wait-EnterOrTimeout {
     param([int]$Seconds = 60)
     $msg = "Press Enter to exit (auto-close in ${Seconds}s)..."
@@ -324,9 +306,7 @@ function Wait-EnterOrTimeout {
     }
 }
 
-# endregion Console
 
-# region Auto-Elevation
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -349,9 +329,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     }
 }
 
-# endregion Auto-Elevation
 
-# region Configuration
 
 $Script:GainExplicitlySet = $PSBoundParameters.ContainsKey('AudioGainMultiplier')
 $Script:Config = @{
@@ -381,9 +359,7 @@ $Script:DiscordClients = [ordered]@{
     8 = @{Name="BetterVencord            [Mod]";      Path="$env:LOCALAPPDATA\BetterVencord";      FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("BetterVencord","Discord","Update"); Exe="Discord.exe"; Shortcut="BetterVencord"; DetectPath="$env:APPDATA\BetterVencord"}
 }
 
-# endregion Configuration
 
-# region Voice Node Helpers
 function Get-FileMd5Hex {
     param([Parameter(Mandatory)][string]$Path)
     try {
@@ -532,9 +508,7 @@ function Test-DiscordVoiceNodeOffsetAnchors {
     if ($rPace) { Write-Log ("  PacerBlockAudio_Flag_XorFalse @0x{0:X} file 0x{1:X}: {2} (expected 0F 94 C3 or 30 DB 90)" -f $rPace, ($rPace - $FileOffsetAdjustment), (& $hex $bPace 3)) -Level Error }
     return $false
 }
-# endregion Voice Node Helpers
 
-# region Logging
 
 function Write-Log {
     param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Message, [ValidateSet('Info','Success','Warning','Error')][string]$Level = 'Info')
@@ -561,9 +535,7 @@ function Show-Settings {
     Write-Host ""
 }
 
-# endregion Logging
 
-# region User Config Persistence
 
 function Save-UserConfig {
     try {
@@ -642,9 +614,7 @@ function Get-OffsetsCopyBlock {
     $lines -join "`n"
 }
 
-# endregion User Config Persistence
 
-# region Auto-Update
 
 function Compare-PatcherScriptVersion {
     param([string]$Left, [string]$Right)
@@ -789,9 +759,7 @@ function Update-ScriptPatch {
     return $true
 }
 
-# endregion Auto-Update
 
-# region Voice Backup Download
 
 function Save-VoiceBackupFiles {
     param([string]$DestinationPath)
@@ -852,9 +820,7 @@ function Save-VoiceBackupFiles {
     }
 }
 
-# endregion Voice Backup Download
 
-# region Multi-Client Detection
 
 function Get-PathFromProcess {
     param([string]$ProcessName)
@@ -973,9 +939,7 @@ function Get-InstalledClients {
     return $inst
 }
 
-# endregion Multi-Client Detection
 
-# region Process Management
 
 function Stop-DiscordProcesses {
     param([string[]]$ProcessNames, [string]$InstallPath)
@@ -1030,9 +994,7 @@ function Stop-AllDiscordProcesses {
     return Stop-DiscordProcesses $allProcs
 }
 
-# endregion Process Management
 
-# region Backup Management
 
 function Get-BackupList {
     if (-not (Test-Path $Script:Config.BackupDir)) { return @() }
@@ -1220,9 +1182,7 @@ function Backup-VoiceNode {
     } catch { Write-Log "Backup failed: $_" -Level Error; return $false }
 }
 
-# endregion Backup Management
 
-# region GUI
 
 function Show-ConfigurationGUI {
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -1454,7 +1414,7 @@ function Show-ConfigurationGUI {
         SAMPLERATE = [Drawing.Color]::FromArgb(87,242,135)
         FILTER     = [Drawing.Color]::FromArgb(254,231,92)
         ENCODER    = [Drawing.Color]::FromArgb(254,231,92)
-        FEC        = [Drawing.Color]::FromArgb(78,205,196)
+        CELT       = [Drawing.Color]::FromArgb(78,205,196)
         OPUS       = [Drawing.Color]::FromArgb(87,242,135)
         NETEQ      = [Drawing.Color]::FromArgb(87,242,135)
         PACING     = [Drawing.Color]::FromArgb(87,242,135)
@@ -1641,9 +1601,7 @@ function Show-ConfigurationGUI {
     try { $null = $form.ShowDialog(); return $form.Tag } finally { $form.Dispose() }
 }
 
-# endregion GUI
 
-# region Environment & Compiler
 
 function Initialize-Environment {
     @($Script:Config.TempDir, $Script:Config.BackupDir) | ForEach-Object {
@@ -1837,9 +1795,7 @@ function Remove-PatcherTempFiles {
     Get-ChildItem $tempDir -Filter "DiscordVoicePatcher_*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
-# endregion Environment & Compiler
 
-# region Source Code Generation
 
 function Get-AmplifierSourceCode {
     $gain = [int]$Script:Config.AudioGainMultiplier
@@ -1970,13 +1926,10 @@ function Get-PatcherSourceCode {
     if ([int]$c.Bitrate -ne 248) { Write-Log "Bitrate locked to 248kbps (ignoring config value $($c.Bitrate))" -Level Warning }
     $bitrateBps = [uint32]($bitrateKbps * 1000)
     $brLe = [BitConverter]::GetBytes($bitrateBps)
-    $brPatchEsc3 = ($brLe[0..2] | ForEach-Object { '\x{0:X2}' -f $_ }) -join ''
     $brPatchEsc4 = ($brLe[0..3] | ForEach-Object { '\x{0:X2}' -f $_ }) -join ''
     $brPatchEsc5 = $brPatchEsc4 + '\x00'
-    $brPatchArr3 = ($brLe[0..2] | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', '
     $brPatchArr4 = ($brLe[0..3] | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', '
     $brPatchArr5 = "$brPatchArr4, 0x00"
-    $brDisplay3 = ($brLe[0..2] | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
     $brDisplay4 = ($brLe[0..3] | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
     $brDisplay5 = "$brDisplay4 00"
     if ($Script:PatchGroups.BITRATE) {
@@ -2048,13 +2001,8 @@ namespace Offsets {
     constexpr uint32_t AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k = $('0x{0:X}' -f $offsets.AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k);
     constexpr uint32_t AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 = $('0x{0:X}' -f $offsets.AudioEncoderOpusConfig_Ctor_FrameMs_Imm10);
     constexpr uint32_t AudioEncoderOpusConfig_Ctor_Application_ImmAudio = $('0x{0:X}' -f $offsets.AudioEncoderOpusConfig_Ctor_Application_ImmAudio);
-    constexpr uint32_t RecreateEncoderInstance_FecBranch_Jmp = $('0x{0:X}' -f $offsets.RecreateEncoderInstance_FecBranch_Jmp);
-    constexpr uint32_t MultiChannelRecreateEncoder_FecBranch_Jmp = $('0x{0:X}' -f $offsets.MultiChannelRecreateEncoder_FecBranch_Jmp);
-    constexpr uint32_t SetFec_EnableBranch_Jmp = $('0x{0:X}' -f $offsets.SetFec_EnableBranch_Jmp);
-    constexpr uint32_t RecreateEncoderInstance_DtxBranch_Jmp = $('0x{0:X}' -f $offsets.RecreateEncoderInstance_DtxBranch_Jmp);
-    constexpr uint32_t MultiChannelRecreateEncoder_DtxBranch_Jmp = $('0x{0:X}' -f $offsets.MultiChannelRecreateEncoder_DtxBranch_Jmp);
-    constexpr uint32_t SetDtx_EnableBranch_Jmp = $('0x{0:X}' -f $offsets.SetDtx_EnableBranch_Jmp);
-    constexpr uint32_t CopyRedEncodeImpl_RedundantCopy_JmpNear = $('0x{0:X}' -f $offsets.CopyRedEncodeImpl_RedundantCopy_JmpNear);
+    constexpr uint32_t CELT_Force = $('0x{0:X}' -f $offsets.CELT_Force);
+    constexpr uint32_t CELT_DefaultMode = $('0x{0:X}' -f $offsets.CELT_DefaultMode);
 
     constexpr uint32_t NetEqDelayManager_MsPerLoss_Imm0 = $('0x{0:X}' -f $offsets.NetEqDelayManager_MsPerLoss_Imm0);
     constexpr uint32_t PacerBlockAudio_Flag_XorFalse       = $('0x{0:X}' -f $offsets.PacerBlockAudio_Flag_XorFalse);
@@ -2711,146 +2659,41 @@ private:
         printf("ERROR: AudioEncoderOpusConfig_Ctor_Application_ImmAudio is required\n"); return false;
 #endif
 
-#if PATCH_RecreateEncoderInstance_FecBranch_Jmp
+#if PATCH_CELT_Force
         {
-            const unsigned char jcc[] = {0x75};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, jmp, 1)) {
-                printf("  [FEC] RecreateEncoder ForceDisableFec already patched\n");
-            } else if (!CheckBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, jcc, 1)) {
-                printf("ERROR: RecreateEncoderInstance_FecBranch_Jmp unexpected byte (expected jnz 75 or jmp EB)\n");
+            const unsigned char stockForced[] = {0x18, 0xFC, 0xFF, 0xFF};
+            const unsigned char celtForced[]  = {0xEA, 0x03, 0x00, 0x00};
+            if (CheckBytes(Offsets::CELT_Force, celtForced, 4)) {
+                printf("  [CELT] opus_encoder_init user_forced_mode already CELT_ONLY\n");
+            } else if (!CheckBytes(Offsets::CELT_Force, stockForced, 4)) {
+                printf("ERROR: CELT_Force unexpected bytes (expected -1000 imm 18 FC FF FF or 1002 EA 03 00 00)\n");
                 return false;
             } else {
-                printf("  [FEC] RecreateEncoderInstance ForceDisableFec (JMP)...\n");
-                if (!PatchBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, "\xEB", 1)) return false;
+                printf("  [CELT] opus_encoder_init force user_forced_mode -1000 -> 1002 (CELT_ONLY)...\n");
+                if (!PatchBytes(Offsets::CELT_Force, "\xEA\x03\x00\x00", 4)) return false;
                 patchCount++;
             }
         }
 #else
-        printf("ERROR: RecreateEncoderInstance_FecBranch_Jmp is required (FEC must stay off)\n"); return false;
+        printf("ERROR: CELT_Force is required (forced CELT codec)\n"); return false;
 #endif
-#if PATCH_MultiChannelRecreateEncoder_FecBranch_Jmp
+#if PATCH_CELT_DefaultMode
         {
-            const unsigned char jcc[] = {0x75};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, jmp, 1)) {
-                printf("  [FEC] MultiChannel Recreate ForceDisableFec already patched\n");
-            } else if (!CheckBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, jcc, 1)) {
-                printf("ERROR: MultiChannelRecreateEncoder_FecBranch_Jmp unexpected byte (expected jnz 75 or jmp EB)\n");
+            const unsigned char stockMode[] = {0xE9, 0x03, 0x00, 0x00};
+            const unsigned char celtMode[]  = {0xEA, 0x03, 0x00, 0x00};
+            if (CheckBytes(Offsets::CELT_DefaultMode, celtMode, 4)) {
+                printf("  [CELT] opus_encoder_init default mode already CELT_ONLY\n");
+            } else if (!CheckBytes(Offsets::CELT_DefaultMode, stockMode, 4)) {
+                printf("ERROR: CELT_DefaultMode unexpected bytes (expected 1001 imm E9 03 00 00 or 1002 EA 03 00 00)\n");
                 return false;
             } else {
-                printf("  [FEC] MultiChannel Recreate ForceDisableFec (JMP)...\n");
-                if (!PatchBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, "\xEB", 1)) return false;
+                printf("  [CELT] opus_encoder_init force default st->mode 1001 -> 1002 (CELT_ONLY)...\n");
+                if (!PatchBytes(Offsets::CELT_DefaultMode, "\xEA\x03\x00\x00", 4)) return false;
                 patchCount++;
             }
         }
 #else
-        printf("ERROR: MultiChannelRecreateEncoder_FecBranch_Jmp is required (FEC must stay off)\n"); return false;
-#endif
-#if PATCH_SetFec_EnableBranch_Jmp
-        {
-            const unsigned char jcc[] = {0x74};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::SetFec_EnableBranch_Jmp, jmp, 1)) {
-                printf("  [FEC] SetFec ForceDisable already patched\n");
-            } else if (!CheckBytes(Offsets::SetFec_EnableBranch_Jmp, jcc, 1)) {
-                printf("ERROR: SetFec_EnableBranch_Jmp unexpected byte (expected jz 74 or jmp EB)\n");
-                return false;
-            } else {
-                printf("  [FEC] AudioEncoderOpusImpl::SetFec ForceDisable (JMP)...\n");
-                if (!PatchBytes(Offsets::SetFec_EnableBranch_Jmp, "\xEB", 1)) return false;
-                patchCount++;
-            }
-        }
-#else
-        printf("ERROR: SetFec_EnableBranch_Jmp is required (FEC must stay off)\n"); return false;
-#endif
-
-#if PATCH_RecreateEncoderInstance_DtxBranch_Jmp
-        {
-            const unsigned char jcc[] = {0x75};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, jmp, 1)) {
-                printf("  [OPUS] RecreateEncoder ForceDisableDtx already patched\n");
-            } else if (!CheckBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, jcc, 1)) {
-                printf("ERROR: RecreateEncoderInstance_DtxBranch_Jmp unexpected byte (expected jnz 75 or jmp EB)\n");
-                return false;
-            } else {
-                printf("  [OPUS] RecreateEncoderInstance ForceDisableDtx (JMP)...\n");
-                if (!PatchBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, "\xEB", 1)) return false;
-                patchCount++;
-            }
-        }
-#else
-        printf("ERROR: RecreateEncoderInstance_DtxBranch_Jmp is required\n"); return false;
-#endif
-#if PATCH_MultiChannelRecreateEncoder_DtxBranch_Jmp
-        {
-            const unsigned char jcc[] = {0x75};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, jmp, 1)) {
-                printf("  [OPUS] MultiChannel Recreate ForceDisableDtx already patched\n");
-            } else if (!CheckBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, jcc, 1)) {
-                printf("ERROR: MultiChannelRecreateEncoder_DtxBranch_Jmp unexpected byte (expected jnz 75 or jmp EB)\n");
-                return false;
-            } else {
-                printf("  [OPUS] MultiChannel Recreate ForceDisableDtx (JMP)...\n");
-                if (!PatchBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, "\xEB", 1)) return false;
-                patchCount++;
-            }
-        }
-#else
-        printf("ERROR: MultiChannelRecreateEncoder_DtxBranch_Jmp is required\n"); return false;
-#endif
-#if PATCH_SetDtx_EnableBranch_Jmp
-        {
-            const unsigned char jcc[] = {0x74};
-            const unsigned char jmp[] = {0xEB};
-            if (CheckBytes(Offsets::SetDtx_EnableBranch_Jmp, jmp, 1)) {
-                printf("  [OPUS] SetDtx ForceDisable already patched\n");
-            } else if (!CheckBytes(Offsets::SetDtx_EnableBranch_Jmp, jcc, 1)) {
-                printf("ERROR: SetDtx_EnableBranch_Jmp unexpected byte (expected jz 74 or jmp EB)\n");
-                return false;
-            } else {
-                printf("  [OPUS] AudioEncoderOpusImpl::SetDtx ForceDisable (JMP)...\n");
-                if (!PatchBytes(Offsets::SetDtx_EnableBranch_Jmp, "\xEB", 1)) return false;
-                patchCount++;
-            }
-        }
-#else
-        printf("ERROR: SetDtx_EnableBranch_Jmp is required\n"); return false;
-#endif
-#if PATCH_CopyRedEncodeImpl_RedundantCopy_JmpNear
-        {
-            const unsigned char jzNear6[] = {0x0F, 0x84};
-            const unsigned char jmpNear6[] = {0xE9};
-            unsigned char cur6[6] = {0};
-            uint32_t fo = Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear - Offsets::FILE_OFFSET_ADJUSTMENT;
-            if ((LONGLONG)(fo + 6) > fileSize) {
-                printf("ERROR: CopyRedEncodeImpl_RedundantCopy_JmpNear out of range\n");
-                return false;
-            }
-            memcpy(cur6, (char*)fileData + fo, 6);
-            if (cur6[0] == 0xE9) {
-                printf("  [OPUS] CopyRed skip RED already patched\n");
-            } else if (cur6[0] != 0x0F || cur6[1] != 0x84) {
-                printf("ERROR: CopyRedEncodeImpl_RedundantCopy_JmpNear unexpected bytes (expected jz near 0F 84 or jmp near E9)\n");
-                return false;
-            } else {
-                unsigned char patch6[6];
-                patch6[0] = 0xE9;
-                patch6[1] = cur6[2];
-                patch6[2] = cur6[3];
-                patch6[3] = cur6[4];
-                patch6[4] = cur6[5];
-                patch6[5] = 0x90;
-                printf("  [OPUS] AudioEncoderCopyRed::EncodeImpl skip RED copy (JZ->JMP near)...\n");
-                if (!PatchBytes(Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear, (const char*)patch6, 6)) return false;
-                patchCount++;
-            }
-        }
-#else
-        printf("ERROR: CopyRedEncodeImpl_RedundantCopy_JmpNear is required\n"); return false;
+        printf("ERROR: CELT_DefaultMode is required (forced CELT codec)\n"); return false;
 #endif
 
 #if PATCH_NetEqDelayManager_MsPerLoss_Imm0
@@ -2999,7 +2842,7 @@ private:
 
 #undef RET_STUB
 
-#if PATCH_ApplySettings_BitrateCalcHigh_Channels_Mov248k && PATCH_SetBitrate_Imm64_Imm248k && PATCH_SetBitrate_OrMask_Nop3 && PATCH_SetTargetBitrate_Mulss_Nop6 && PATCH_GetMultipliedBitrate_Mulss_Nop7 && PATCH_GetMultipliedBitrate_Entry_IdentityRet && PATCH_SetTargetBitrate_ClampMax248k_Cmp && PATCH_SetTargetBitrate_ClampMax248k_Mov && PATCH_ApplySettings_MaxAvgBitrateClamp248k_Cmp && PATCH_ApplySettings_MaxAvgBitrateClamp248k_Mov && PATCH_EncoderOpusImpl_RelayClamp248k_Cmp && PATCH_EncoderOpusImpl_RelayClamp248k_Mov && PATCH_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k && PATCH_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k && PATCH_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 && PATCH_AudioEncoderOpusConfig_Ctor_Application_ImmAudio && PATCH_RecreateEncoderInstance_FecBranch_Jmp && PATCH_MultiChannelRecreateEncoder_FecBranch_Jmp && PATCH_SetFec_EnableBranch_Jmp && PATCH_RecreateEncoderInstance_DtxBranch_Jmp && PATCH_MultiChannelRecreateEncoder_DtxBranch_Jmp && PATCH_SetDtx_EnableBranch_Jmp && PATCH_CopyRedEncodeImpl_RedundantCopy_JmpNear
+#if PATCH_ApplySettings_BitrateCalcHigh_Channels_Mov248k && PATCH_SetBitrate_Imm64_Imm248k && PATCH_SetBitrate_OrMask_Nop3 && PATCH_SetTargetBitrate_Mulss_Nop6 && PATCH_GetMultipliedBitrate_Mulss_Nop7 && PATCH_GetMultipliedBitrate_Entry_IdentityRet && PATCH_SetTargetBitrate_ClampMax248k_Cmp && PATCH_SetTargetBitrate_ClampMax248k_Mov && PATCH_ApplySettings_MaxAvgBitrateClamp248k_Cmp && PATCH_ApplySettings_MaxAvgBitrateClamp248k_Mov && PATCH_EncoderOpusImpl_RelayClamp248k_Cmp && PATCH_EncoderOpusImpl_RelayClamp248k_Mov && PATCH_AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k && PATCH_AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k && PATCH_AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 && PATCH_AudioEncoderOpusConfig_Ctor_Application_ImmAudio && PATCH_CELT_Force && PATCH_CELT_DefaultMode
         {
             const unsigned char bps248_4[] = {$brPatchArr4};
             const unsigned char bps248_5[] = {$brPatchArr5};
@@ -3019,14 +2862,7 @@ private:
             const unsigned char nop7[] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
             const unsigned char ms10[] = {0x0A};
             const unsigned char appAudio[] = {0x01};
-            const unsigned char jmp[] = {0xEB};
-            unsigned char copyRed6[6] = {0};
-            uint32_t copyRedFo = Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear - Offsets::FILE_OFFSET_ADJUSTMENT;
-            if ((LONGLONG)(copyRedFo + 6) > fileSize) {
-                printf("ERROR: CopyRed verification read out of range\n");
-                return false;
-            }
-            memcpy(copyRed6, (char*)fileData + copyRedFo, 6);
+            const unsigned char celtMode[] = {0xEA, 0x03, 0x00, 0x00};
             if (!CheckBytes(Offsets::ApplySettings_BitrateCalcLow_Channels_Mov248k, flatEbp, 6) ||
                 !CheckBytes(Offsets::ApplySettings_BitrateCalcMid_Channels_Mov248k, flatEbp, 6) ||
                 !CheckBytes(Offsets::ApplySettings_BitrateCalcHigh_Channels_Mov248k, flatEbp, 6) ||
@@ -3053,13 +2889,8 @@ private:
                 !CheckBytes(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, bps248_4, 4) ||
                 !CheckBytes(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, ms10, 1) ||
                 !CheckBytes(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appAudio, 1) ||
-                !CheckBytes(Offsets::RecreateEncoderInstance_FecBranch_Jmp, jmp, 1) ||
-                !CheckBytes(Offsets::MultiChannelRecreateEncoder_FecBranch_Jmp, jmp, 1) ||
-                !CheckBytes(Offsets::SetFec_EnableBranch_Jmp, jmp, 1) ||
-                !CheckBytes(Offsets::RecreateEncoderInstance_DtxBranch_Jmp, jmp, 1) ||
-                !CheckBytes(Offsets::MultiChannelRecreateEncoder_DtxBranch_Jmp, jmp, 1) ||
-                !CheckBytes(Offsets::SetDtx_EnableBranch_Jmp, jmp, 1) ||
-                copyRed6[0] != 0xE9) {
+                !CheckBytes(Offsets::CELT_Force, celtMode, 4) ||
+                !CheckBytes(Offsets::CELT_DefaultMode, celtMode, 4)) {
                 printf("ERROR: Post-patch core lock verification failed\n");
                 return false;
             }
@@ -3068,11 +2899,15 @@ private:
             uint32_t ctorBitrateB = 0;
             uint32_t frameMs = 0;
             uint32_t appMode = 0;
+            uint32_t celtForcedVal = 0;
+            uint32_t celtModeVal = 0;
             if (!ReadU32LE(Offsets::SetBitrate_Imm64_Imm248k, setBitrateValue) ||
                 !ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k, ctorBitrateA) ||
                 !ReadU32LE(Offsets::AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k, ctorBitrateB) ||
                 !ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_FrameMs_Imm10, frameMs) ||
-                !ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appMode)) {
+                !ReadU32LE(Offsets::AudioEncoderOpusConfig_Ctor_Application_ImmAudio, appMode) ||
+                !ReadU32LE(Offsets::CELT_Force, celtForcedVal) ||
+                !ReadU32LE(Offsets::CELT_DefaultMode, celtModeVal)) {
                 printf("ERROR: Failed to read back locked encoder values for verification.\n");
                 return false;
             }
@@ -3090,7 +2925,12 @@ private:
                 printf("ERROR: application mode verification failed (got %u, expected 1 kAudio)\n", (unsigned)(appMode & 0xFFu));
                 return false;
             }
-            printf("  Verified lock: bitrate=%u bps, 10ms frames, kAudio, FEC/DTX/RED off\n", (unsigned)BITRATE_BPS);
+            if (celtForcedVal != 1002u || celtModeVal != 1002u) {
+                printf("ERROR: CELT force verification failed (user_forced_mode=%u default_mode=%u, expected 1002)\n",
+                       celtForcedVal, celtModeVal);
+                return false;
+            }
+            printf("  Verified lock: bitrate=%u bps, 10ms frames, kAudio, forced CELT (mode=1002)\n", (unsigned)BITRATE_BPS);
         }
 #else
         printf("ERROR: Core lock patches were disabled; refusing to finish.\n");
@@ -3197,14 +3037,11 @@ private:
 #if PATCH_SetNoiseCancellationDuringProcessing_Entry_Ret
         if (!VerifySite("SetNoiseCancellationDuringProcessing_Entry_Ret", Offsets::SetNoiseCancellationDuringProcessing_Entry_Ret, (const unsigned char*)"\xC3", 1)) return false;
 #endif
-#if PATCH_CopyRedEncodeImpl_RedundantCopy_JmpNear
-        {
-            unsigned char cr6[6] = {0};
-            uint32_t crFo = Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear - Offsets::FILE_OFFSET_ADJUSTMENT;
-            if ((LONGLONG)(crFo + 6) > fileSize) { printf("ERROR: CopyRed verify out of range\n"); return false; }
-            memcpy(cr6, (char*)fileData + crFo, 6);
-            if (cr6[0] != 0xE9) { printf("ERROR: Verify failed: CopyRedEncodeImpl_RedundantCopy_JmpNear @ 0x%X\n", Offsets::CopyRedEncodeImpl_RedundantCopy_JmpNear); return false; }
-        }
+#if PATCH_CELT_Force
+        if (!VerifySite("CELT_Force", Offsets::CELT_Force, (const unsigned char*)"\xEA\x03\x00\x00", 4)) return false;
+#endif
+#if PATCH_CELT_DefaultMode
+        if (!VerifySite("CELT_DefaultMode", Offsets::CELT_DefaultMode, (const unsigned char*)"\xEA\x03\x00\x00", 4)) return false;
 #endif
         printf("  All enabled patch sites verified.\n");
 
@@ -3400,9 +3237,7 @@ function New-SourceFiles {
     } catch { Write-Log "Failed to create source files: $_" -Level Error; return $null }
 }
 
-# endregion Source Code Generation
 
-# region Compilation
 
 function Show-CompilationFailureGuidance {
     param([string]$CompilerType, [string]$LogPath)
@@ -3527,9 +3362,7 @@ function Invoke-Compilation {
     }
 }
 
-# endregion Compilation
 
-# region Core Patching
 
 function Get-UniqueClientsByAppPath {
     param([array]$Clients)
@@ -3719,9 +3552,7 @@ function Invoke-PatchClients {
     return @{ Success = $successCount; Failed = @($failedClients); Total = $Clients.Count }
 }
 
-# endregion Core Patching
 
-# region Main Entry
 
 function Start-Patching {
     if (-not $Script:DebugModeActive) { Set-LockedCorePatches }
@@ -4013,9 +3844,7 @@ function Start-Patching {
     return ($result.Success -gt 0)
 }
 
-# endregion Main Entry
 
-# region Run
 
 try {
     $success = Start-Patching
@@ -4027,4 +3856,3 @@ try {
     Wait-EnterOrTimeout; exit 1
 }
 
-# endregion Run

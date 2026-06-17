@@ -20,7 +20,7 @@ try:
 except ImportError:
     VIZ_AVAILABLE = False
 
-VERSION = "5.6.0"
+VERSION = "5.8.0"
 
 TARGET_BITRATE_BPS = 248000
 _BITRATE_LE = TARGET_BITRATE_BPS.to_bytes(4, "little")
@@ -28,7 +28,6 @@ BITRATE_PATCH_3 = " ".join(f"{b:02X}" for b in _BITRATE_LE[:3])
 BITRATE_PATCH_4 = " ".join(f"{b:02X}" for b in _BITRATE_LE)
 BITRATE_PATCH_5 = BITRATE_PATCH_4 + " 00"
 STOCK_MAX_BITRATE_LE = (512048).to_bytes(4, "little")
-MAX510K_LE = STOCK_MAX_BITRATE_LE
 TIER_EBP_IMMS = (0x2EE0, 0x4E20, 0x7D00)
 TIER_R8D_IMMS = (32000, 48000, 60000)
 FLAT_EBP248K_PATCH = "BD C0 C8 03 00 90"
@@ -58,7 +57,6 @@ DERIVATIONS = {
         ("ApplySettings_MaxAvgBitrateClamp248k_Cmp", 0x6),
     ],
     "RecreateEncoder_BitrateCalcLow_Channels_Mov248k": [
-        ("RecreateEncoderInstance_FecBranch_Jmp", 0x3FF5),
         ("ApplySettings_BitrateCalcLow_Channels_Mov248k", 0x4EE6),
     ],
     "RecreateEncoder_BitrateCalcMid_Channels_Mov248k": [
@@ -117,24 +115,6 @@ DERIVATIONS = {
     "AudioEncoderOpusConfig_Ctor_Application_ImmAudio": [
         ("AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k", 0xB),
     ],
-    "RecreateEncoderInstance_DtxBranch_Jmp": [
-        ("RecreateEncoderInstance_FecBranch_Jmp", 0xCD),
-    ],
-    "MultiChannelRecreateEncoder_DtxBranch_Jmp": [
-        ("MultiChannelRecreateEncoder_FecBranch_Jmp", 0x181),
-    ],
-    "SetDtx_EnableBranch_Jmp": [
-        ("SetFec_EnableBranch_Jmp", 0xB0),
-    ],
-    "CopyRedEncodeImpl_RedundantCopy_JmpNear": [
-        ("SetFec_EnableBranch_Jmp", 0x91A9),
-    ],
-    "RecreateEncoderInstance_FecBranch_Jmp": [
-        ("SetTargetBitrate_Mulss_Nop6", -0x1B8E),
-    ],
-    "SetFec_EnableBranch_Jmp": [
-        ("SetTargetBitrate_Mulss_Nop6", -0x135F),
-    ],
 }
 
 _PHASE2_SKIP_CLANG = frozenset({
@@ -179,14 +159,21 @@ class Signature:
     def _parse(hex_str):
         return [None if b == '??' else int(b, 16) for b in hex_str.split()]
 
-    def __repr__(self):
-        return f"Signature({self.name})"
 
-
-def _recreate_fec_disambiguator(data, match_offset):
-    if match_offset + 0xCD + 6 > len(data):
-        return False
-    return data[match_offset + 0xCD:match_offset + 0xCD + 6] == b"\x41\x80\x7E\x34\x01\x75"
+def _celt_default_mode_disambiguator(data, match_offset):
+    # The default `st->mode = 1001` (0x3E9) store appears in three libopus init
+    # routines (opus_encoder_init, opus_multistream..., celt variant). Only
+    # opus_encoder_init also writes `user_forced_mode = -1000`
+    # (REX.W C7 /0 [reg+0x88], 0xFFFFFC18) a short distance before it. Anchor on
+    # that globally-unique store so we pick the real opus_encoder_init site.
+    start = max(0, match_offset - 0x200)
+    tail = b"\x88\x00\x00\x00\x18\xFC\xFF\xFF"
+    pos = data.find(tail, start, match_offset)
+    while pos != -1:
+        if pos >= 3 and data[pos - 3] == 0x48 and data[pos - 2] == 0xC7:
+            return True
+        pos = data.find(tail, pos + 1, match_offset)
+    return False
 
 
 def _mono_downmixer_disambiguator(data, match_offset):
@@ -389,89 +376,6 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="RecreateEncoderInstance_FecBranch_Jmp",
-        pattern_hex="41 80 7E 1C 01 75",
-        target_offset=5,
-        description="RecreateEncoderInstance: cmp [r14+1Ch],1; jnz EnableFec -> jmp DisableFec",
-        expected_original="75",
-        patch_bytes="EB",
-        patch_len=1,
-        disambiguator=_recreate_fec_disambiguator,
-        alt_patterns=[
-            ("41 80 BE 1C 01 00 00 00 75", 8),
-            ("80 79 1C 01 75", 4),
-            ("41 80 BC 1C 01 00 00 00 75", 8),
-            ("41 80 7C 24 1C 01 75", 6),
-        ],
-    ),
-
-    Signature(
-        name="MultiChannelRecreateEncoder_FecBranch_Jmp",
-        pattern_hex="41 80 7F 18 01 75",
-        target_offset=5,
-        description="MultiChannel RecreateEncoderInstance: cmp [r15+18h],1; jnz -> jmp",
-        expected_original="75",
-        patch_bytes="EB",
-        patch_len=1,
-        alt_patterns=[
-            ("41 80 BF 18 01 00 00 00 75", 8),
-            ("41 80 BD 18 01 00 00 00 75", 8),
-            ("41 80 7D 18 01 75", 5),
-        ],
-    ),
-
-    Signature(
-        name="SetFec_EnableBranch_Jmp",
-        pattern_hex="48 8B 89 A8 00 00 00 84 D2 74",
-        target_offset=9,
-        description="AudioEncoderOpusImpl::SetFec: test dl,dl; jz EnableFec -> jmp DisableFec",
-        expected_original="74",
-        patch_bytes="EB",
-        patch_len=1,
-        alt_patterns=[
-            ("48 8B BF A8 00 00 00 85 F6 74", 9),
-        ],
-    ),
-
-    Signature(
-        name="RecreateEncoderInstance_DtxBranch_Jmp",
-        pattern_hex="41 80 7E 34 01 75",
-        target_offset=5,
-        description="RecreateEncoderInstance: cmp byte [rsi+34h],1; jnz EnableDtx -> jmp",
-        expected_original="75",
-        patch_bytes="EB",
-        patch_len=1,
-        alt_patterns=[
-            ("80 7E 34 01 75", 4),
-            ("41 80 BE 34 01 00 00 00 75", 8),
-            ("80 79 34 01 75", 4),
-        ],
-    ),
-
-    Signature(
-        name="MultiChannelRecreateEncoder_DtxBranch_Jmp",
-        pattern_hex="41 80 7F 1A 01 75",
-        target_offset=5,
-        description="MultiChannel RecreateEncoderInstance: cmp [r15+34h],1; jnz -> jmp",
-        expected_original="75",
-        patch_bytes="EB",
-        patch_len=1,
-        alt_patterns=[
-            ("41 80 BF 34 01 00 00 00 75", 8),
-        ],
-    ),
-
-    Signature(
-        name="SetDtx_EnableBranch_Jmp",
-        pattern_hex="48 8B 89 A8 00 00 00 84 D2 74",
-        target_offset=9,
-        description="AudioEncoderOpusImpl::SetDtx: test dl,dl; jz -> jmp",
-        expected_original="74",
-        patch_bytes="EB",
-        patch_len=1,
-    ),
-
-    Signature(
         name="AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
         pattern_hex="48 B9 14 00 00 00 80 BB 00 00 48 89 08 48 C7 40 08",
         target_offset=2,
@@ -495,16 +399,24 @@ SIGNATURES = [
     ),
 
     Signature(
-        name="CopyRedEncodeImpl_RedundantCopy_JmpNear",
-        pattern_hex="49 8B 55 00 48 85 D2 0F 84",
+        name="CELT_Force",
+        pattern_hex="48 C7 ?? 88 00 00 00 18 FC FF FF",
         target_offset=7,
-        description="AudioEncoderCopyRed::EncodeImpl: test rcx,rcx; jz skip RED -> jmp near",
-        expected_original="0F 84",
-        patch_bytes="E9",
-        patch_len=2,
-        alt_patterns=[
-            ("48 8B 09 48 85 C9 0F 84", 7),
-        ],
+        description="opus_encoder_init: mov [reg+0x88],user_forced_mode=-1000; force CELT_ONLY(1002). Globally unique store.",
+        expected_original="18 FC FF FF",
+        patch_bytes="EA 03 00 00",
+        patch_len=4,
+    ),
+
+    Signature(
+        name="CELT_DefaultMode",
+        pattern_hex="C7 ?? 94 37 00 00 E9 03 00 00",
+        target_offset=6,
+        description="opus_encoder_init: mov dword [reg+0x3794],default mode=1001(HYBRID); force CELT_ONLY(1002).",
+        expected_original="E9 03 00 00",
+        patch_bytes="EA 03 00 00",
+        patch_len=4,
+        disambiguator=_celt_default_mode_disambiguator,
     ),
 ]
 
@@ -555,7 +467,6 @@ CLANG_ALT_PATTERNS = [
      "B8 80 BB 00 00 41 ?? 00 7D 00 00 ?? 0F 43 ??", 31),
 ]
 
-# region PE Parser
 
 def parse_pe(data):
     if len(data) < 0x40 or data[:2] != b'MZ':
@@ -623,10 +534,8 @@ def parse_pe(data):
         'file_offset_adjustment': file_offset_adjustment,
     }
 
-# endregion PE Parser
 
 
-# region ELF Parser
 ELF_SYMBOL_MAP = {
 
     "CodecMismatchThrow_Entry_Ret": {
@@ -699,22 +608,6 @@ ELF_SYMBOL_MAP = {
         "at_start": False,
         "linux_scan": "get_multiplied_bitrate_mulss",
     },
-    "RecreateEncoderInstance_FecBranch_Jmp": {
-        "patterns": ["AudioEncoderOpusImpl22RecreateEncoderInstanceEv",
-                     "RecreateEncoderInstance"],
-        "at_start": False,
-        "linux_scan": "fec_recreate_jnz",
-    },
-    "MultiChannelRecreateEncoder_FecBranch_Jmp": {
-        "patterns": ["AudioEncoderMultiChannelOpusImpl22RecreateEncoderInstanceEv"],
-        "at_start": False,
-        "linux_scan": "fec_multichannel_jnz",
-    },
-    "SetFec_EnableBranch_Jmp": {
-        "patterns": ["AudioEncoderOpusImpl6SetFecEb", "SetFecEb"],
-        "at_start": False,
-        "linux_scan": "fec_set_jz",
-    },
     "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k": {
         "patterns": ["AudioEncoderOpusConfigC1Ev", "AudioEncoderOpusConfigC2Ev"],
         "at_start": False,
@@ -743,12 +636,6 @@ ELF_SYMBOL_MAP = {
 
 
 _ARM64_MOVZ_W_MASK = 0xFFFFFFE0
-_ARM64_MOVZ_W1     = 0x52800020
-_ARM64_MOVZ_W2     = 0x52800040
-_ARM64_MOVZ_W48000 = 0x52977000
-_ARM64_MOVZ_W32000 = 0x528FA000
-_ARM64_MOVZ_W960   = 0x52807800
-_ARM64_RET         = 0xD65F03C0
 
 
 ARM64_SYMBOL_MAP = {
@@ -987,10 +874,8 @@ def parse_elf(data):
         'entry': e_entry,
     }
 
-# endregion ELF Parser
 
 
-# region Mach-O Parser
 
 def parse_macho(data):
     if len(data) < 32:
@@ -1196,10 +1081,8 @@ def _parse_macho_slice(data, base_offset):
         'arch': arch,
     }
 
-# endregion Mach-O Parser
 
 
-# region macOS Stereo Patch Finder
 
 def _parse_fat_macho_slices(data):
     if len(data) < 32:
@@ -1244,20 +1127,291 @@ _X86_STEREO = [
     {"n": "SdpToConfig_jne", "p": "41 BF ?? ?? ?? ?? 80 7D C8 01 75", "t": 10, "o": "75", "x": "EB"},
 ]
 
-_ARM64_STEREO = [
-    {"n": "MultiChannelOpusConfig_channels", "p": "28 00 80 52", "t": 0, "o": "28", "x": "48", "occ": 1},
-    {"n": "OpusConfig_channels", "p": "28 00 80 52", "t": 0, "o": "28", "x": "48", "occ": 2},
-    {"n": "StereoConstBitrate", "p": "00 00 00 00 00 7D 00 00 09", "t": 5, "o": "7D 00", "x": BITRATE_PATCH_3, "occ": 1},
-    {"n": "StereoDownmixChannels", "p": "F6 57 BD A9", "t": 0, "o": "F6 57 BD A9", "x": "C0 03 5F D6", "occ": 1},
-    {"n": "StereoDownMixFrame", "p": "20 01 00 34", "t": 0, "o": "20 01 00 34", "x": "1F 20 03 D5", "occ": 1},
-    {"n": "StereoApplyAudioNetworkAdaptor", "p": "41 01 00 54", "t": 0, "o": "41 01 00 54", "x": "0A 00 00 14", "occ": 1},
-    {"n": "SdpToConfig_cinc1", "p": "15 15 88 9A", "t": 0, "o": "15 15 88 9A", "x": "55 00 80 52", "occ": 1},
-    {"n": "SdpToConfig_mov1", "p": "35 00 80 52", "t": 0, "o": "35", "x": "55", "occ": 1},
-    {"n": "SdpToConfig_cinc2", "p": "15 15 88 9A", "t": 0, "o": "15 15 88 9A", "x": "55 00 80 52", "occ": 2},
-    {"n": "SdpToConfig_mov2", "p": "35 00 80 52", "t": 0, "o": "35", "x": "55", "occ": 2},
+# macOS arm64 stereo patches — symbol-table lookup (pattern scan hits wrong functions).
+_ARM64_STEREO_SYMBOLS = [
+    {
+        "name": "MultiChannelOpusConfig_channels",
+        "symbol": "AudioEncoderMultiChannelOpusConfigC1Ev",
+        "search_insn": b"\x28\x00\x80\x52",
+        "occurrence": 1, "scan_range": 64,
+        "orig": "28", "patch": "48",
+    },
+    {
+        "name": "OpusConfig_channels",
+        "symbol": "AudioEncoderOpusConfigC1Ev",
+        "search_insn": b"\x28\x00\x80\x52",
+        "occurrence": 1, "scan_range": 64,
+        "orig": "28", "patch": "48",
+    },
+    {
+        "name": "StereoDownmixChannels",
+        "symbol": "AudioFrameOperations15DownmixChannelsEmPNS_10AudioFrameE",
+        "at_start": True,
+        "orig": "F6 57 BD A9", "patch": "C0 03 5F D6",
+    },
+    {
+        "name": "StereoDownMixFrame",
+        "symbol": "12DownMixFrameERKNS_10AudioFrameE",
+        "search_insn": b"\x20\x01\x00\x34",
+        "occurrence": 1, "scan_range": 64,
+        "orig": "20 01 00 34", "patch": "1F 20 03 D5",
+    },
+    {
+        "name": "StereoApplyAudioNetworkAdaptor",
+        "symbol": "AudioEncoderOpusImpl24ApplyAudioNetworkAdaptor",
+        "search_insn": b"\x41\x01\x00\x54",
+        "occurrence": 1, "scan_range": 512,
+        "orig": "41 01 00 54", "patch": "1F 20 03 D5",
+    },
+    {
+        "name": "SdpToConfig_cinc1",
+        "symbol": "AudioEncoderOpusImpl11SdpToConfig",
+        "search_insn": b"\x15\x15\x88\x9A",
+        "occurrence": 1, "scan_range": 512,
+        "orig": "15 15 88 9A", "patch": "55 00 80 52",
+    },
+    {
+        "name": "SdpToConfig_mov1",
+        "symbol": "AudioEncoderOpusImpl11SdpToConfig",
+        "search_insn": b"\x35\x00\x80\x52",
+        "occurrence": 1, "scan_range": 512,
+        "orig": "35", "patch": "55",
+    },
+    {
+        "name": "SdpToConfig_cinc2",
+        "symbol": "AudioEncoderOpusImpl11SdpToConfig",
+        "search_insn": b"\x15\x15\x88\x9A",
+        "occurrence": 2, "scan_range": 512,
+        "orig": "15 15 88 9A", "patch": "55 00 80 52",
+    },
+    {
+        "name": "SdpToConfig_mov2",
+        "symbol": "AudioEncoderOpusImpl11SdpToConfig",
+        "search_insn": b"\x35\x00\x80\x52",
+        "occurrence": 2, "scan_range": 512,
+        "orig": "35", "patch": "55",
+    },
+    {
+        "name": "CommitAudioCodec_stereo_force",
+        "symbol": "LocalUser16CommitAudioCodecEv",
+        "search_insn": b"\x1F\x05\x00\x71",
+        "occurrence": 2, "scan_range": 768,
+        "orig": "1F 05 00 71", "patch": "1F 0A 00 71",
+    },
+    {
+        "name": "CommitAudioCodec_stereo_force2",
+        "symbol": "LocalUser16CommitAudioCodecEv",
+        "search_insn": b"\xE1\x00\x00\x54",
+        "occurrence": 1, "scan_range": 768,
+        "orig": "E1 00 00 54", "patch": "06 00 00 14",
+    },
+    {
+        "name": "OpusConfig_IsOk",
+        "symbol": "AudioEncoderOpusConfig4IsOkEv",
+        "at_start": True,
+        "orig": "08 00 40 B9 A9 99 99 52",
+        "patch": "20 00 80 52 C0 03 5F D6",
+    },
+    {
+        "name": "MultiChannelOpusConfig_IsOk",
+        "symbol": "AudioEncoderMultiChannelOpusConfig4IsOkEv",
+        "at_start": True,
+        "orig": "FF 03 01 D1 F4 4F 02 A9",
+        "patch": "20 00 80 52 C0 03 5F D6",
+    },
+    {
+        "name": "CreateAudioFrame_channels1",
+        "symbol": "CreateAudioFrameToProcess",
+        "search_insn": b"\x3B\x00\x80\x52",
+        "occurrence": 1, "scan_range": 256,
+        "orig": "3B", "patch": "5B",
+    },
+    {
+        "name": "CreateAudioFrame_channels2",
+        "symbol": "CreateAudioFrameToProcess",
+        "search_insn": b"\x3B\x00\x80\x52",
+        "occurrence": 2, "scan_range": 256,
+        "orig": "3B", "patch": "5B",
+    },
+    {
+        "name": "InitializeHighPassFilter_bypass",
+        "symbol": "InitializeHighPassFilterEb",
+        "at_start": True,
+        "orig": "F6 57 BD A9", "patch": "C0 03 5F D6",
+    },
+    {
+        "name": "NumProcChannels_force_stereo",
+        "symbol": "AudioProcessingImpl17num_proc_channelsEv",
+        "at_start": True,
+        "orig": "08 B4 45 39 1F 05 00 71",
+        "patch": "40 00 80 52 C0 03 5F D6",
+    },
+    {
+        "name": "DownmixInterleavedToMono_bypass",
+        "symbol": "DownmixInterleavedToMonoIsE",
+        "at_start": True,
+        "orig": "48 7C 40 93", "patch": "C0 03 5F D6",
+    },
+    {
+        "name": "NoiseCanceller_bypass",
+        "symbol": "NoiseCanceller7ProcessEPsmmmj",
+        "at_start": True,
+        "orig": "FF 03 02 D1", "patch": "C0 03 5F D6",
+    },
+    {
+        "name": "CustomCapturePostproc_bypass",
+        "symbol": "DiscordCustomAudioCapturePostproc7ProcessE",
+        "symbol_alternates": ["CustomAudioCapturePostproc7ProcessE"],
+        "search_insn": b"\xAE\x6C\xFF\x17",
+        "occurrence": 1, "scan_range": 0x400,
+        "orig": "AE 6C FF 17", "patch": "1F 20 03 D5",
+    },
+    {
+        "name": "ProcessStream_bypass",
+        "symbol": "AudioProcessingImpl13ProcessStreamEPKs",
+        "search_insn": b"\xE1\x00\x00\x54",
+        "occurrence": 1, "scan_range": 0x800,
+        "orig": "E1 00 00 54", "patch": "1F 20 03 D5",
+    },
+    {
+        "name": "CapturedAudioProcessor_MonoDownmix",
+        "symbol": "CapturedAudioProcessor7Process",
+        "search_insn": b"\x48\x02\x00\x37",
+        "occurrence": 1, "scan_range": 0x2000,
+        "orig": "48 02 00 37", "patch": "1F 20 03 D5",
+    },
+    {
+        "name": "ChannelDownmix_Entry_Ret",
+        "symbol": "downmix_and_resample",
+        "prologue_scan": 48,
+        "orig": "E9 23 B9 6D", "patch": "C0 03 5F D6",
+    },
+    {
+        "name": "CodecMismatchThrow_Entry_Ret",
+        "symbol": "Environment5ThrowIJPKcEE",
+        "symbol_alternates": ["Environment5Throw"],
+        "at_start": True,
+        "orig": "FF 43 01 D1", "patch": "C0 03 5F D6",
+    },
+    {
+        "name": "SelectSampleRate_Cmov48k_Nop3",
+        "symbol": "LocalUser16CommitAudioCodecEv",
+        "search_insn": b"\xE2\x17\x9F\x1A",
+        "occurrence": 1, "scan_range": 0x1000,
+        "orig": "E2 17 9F 1A", "patch": "1F 20 03 D5",
+    },
+    {
+        "name": "CommitAudioCodec_ChannelCount_alt",
+        "symbol": "LocalUser16CommitAudioCodecEv",
+        "search_insn": b"\x1F\x05\x00\x71",
+        "occurrence": 1, "scan_range": 0x1000,
+        "orig": "1F 05 00 71", "patch": "1F 0A 00 71",
+    },
 ]
 
 MIN_ARM64_VA = 0x4000
+
+ARM64_STEREO_SPEC_NAMES = [s["name"] for s in _ARM64_STEREO_SYMBOLS]
+
+# Sites required by apply_arm64_stereo_patches.py (static ARM64_PATCHES table).
+MACOS_ARM64_PATCHER_NAMES = tuple(ARM64_STEREO_SPEC_NAMES)
+
+# Sites required by discord_voice_patcher_linux.sh (not the Windows 55-offset set).
+LINUX_PATCHER_OFFSET_ORDER = (
+    # Stereo (channels + downmix bypass)
+    "CommitAudioCodec_StereoCheck1_Imm0",
+    "CommitAudioCodec_StereoCheck2_Imm0",
+    "CreateAudioFrame_Channels_MovImm2",
+    "CapturedAudioProcessor_MonoDownmix_NopJmp",
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02",
+    "ChannelDownmix_Entry_Ret",
+    # 48 kHz sample rate
+    "SelectSampleRate_Constant_Imm48k",
+    # 248 kbps bitrate (config defaults + single central SetBitRate lock)
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
+    "WebRtcOpus_SetBitRate_ForceImm",
+    # 10ms frames + kAudio application
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
+    # Filter disable + config validation bypass
+    "WebRtcSplHighPass_Entry_Ret",
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet",
+    # Amplifier shellcode injection
+    "hp_cutoff_Callback_InjectShellcode",
+    "dc_reject_Callback_InjectShellcode",
+    # Force CELT (MDCT) codec mode
+    "CELT_Force",
+    "CELT_DefaultMode",
+)
+
+# Windows finder result key -> Linux patcher shell name (same patch site).
+# Simplified patch set (v9.0): stereo, 48kHz, central bitrate lock, 10ms/kAudio,
+# filter/validation bypass, amplifier, forced CELT. FEC/DTX/RED + bitrate-tier
+# patches were removed (redundant/fragile under forced CELT + central SetBitRate lock).
+LINUX_FROM_WINDOWS = {
+    "CreateAudioFrame_ChannelAssign_Mov": "CreateAudioFrame_Channels_MovImm2",
+    "CapturedAudioProcessor_MonoDownmix_NopJmp": "CapturedAudioProcessor_MonoDownmix_NopJmp",
+    "AudioEncoderOpusConfig_Ctor_Channels_Imm02": "AudioEncoderOpusConfig_Ctor_Channels_Imm02",
+    "OpusEncoderConfig_SetMultiChannelStereo": "AudioEncoderMultiChannelOpusConfig_Ctor_Channels_Imm02",
+    "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k": "AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k": "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
+    "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10": "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
+    "AudioEncoderOpusConfig_Ctor_Application_ImmAudio": "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
+    "WebRtcSplHighPass_Dispatch_MovRet": "WebRtcSplHighPass_Entry_Ret",
+    "hp_cutoff_Callback_InjectShellcode": "hp_cutoff_Callback_InjectShellcode",
+    "dc_reject_Callback_InjectShellcode": "dc_reject_Callback_InjectShellcode",
+    "ChannelDownmix_Entry_Ret": "ChannelDownmix_Entry_Ret",
+    "AudioEncoderOpusConfig_IsOK_MovTrueRet": "AudioEncoderOpusConfig_IsOK_MovTrueRet",
+}
+
+# ELF symbol-driven resolution for sites not covered by the shared Windows table.
+# Each entry: a function (by mangled-symbol substring) + a byte scan within it.
+LINUX_EXTRA_ELF_MAP = {
+    "CommitAudioCodec_StereoCheck1_Imm0": {
+        "patterns": ["LocalUser16CommitAudioCodecEv"],
+        "linux_scan": "stereo_check_dword_f0_imm2",
+    },
+    "CommitAudioCodec_StereoCheck2_Imm0": {
+        "patterns": ["LocalUser17CreateAudioStreamEv"],
+        "linux_scan": "stereo_check_dword_f0_imm2",
+    },
+    "WebRtcSplHighPass_Entry_Ret": {
+        "patterns": ["HighPassFilter7ProcessEPNS_11AudioBufferEb"],
+        "linux_scan": "function_entry",
+    },
+    "SelectSampleRate_Constant_Imm48k": {
+        "patterns": ["CreateAudioFrameToProcess", "CreateAudioFrame"],
+        "linux_scan": "select_sample_rate_imm48k",
+    },
+    # Central bitrate lock: WebRtcOpus_SetBitRate prologue (push rbp; mov edx, esi).
+    "WebRtcOpus_SetBitRate_ForceImm": {
+        "patterns": ["WebRtcOpus_SetBitRate"],
+        "linux_scan": "webrtcopus_setbitrate_force",
+    },
+    # Forced CELT: opus_encoder_init writes user_forced_mode (-1000) and default mode (1001).
+    "CELT_Force": {
+        "patterns": ["opus_encoder_init"],
+        "linux_scan": "celt_user_forced_mode",
+    },
+    "CELT_DefaultMode": {
+        "patterns": ["opus_encoder_init"],
+        "linux_scan": "celt_default_mode",
+    },
+}
+
+
+def _arm64_bl_destination(d, off):
+    if off + 4 > len(d):
+        return None
+    insn = int.from_bytes(d[off : off + 4], "little")
+    if (insn >> 26) != 0b100101:
+        return None
+    imm26 = insn & 0x03FFFFFF
+    if imm26 & 0x02000000:
+        imm26 -= 0x04000000
+    return off + (imm26 << 2)
 
 
 def _find_stereo_x86(slice_info, out):
@@ -1286,31 +1440,163 @@ def _find_stereo_x86(slice_info, out):
         out.append({"arch": "x86_64", "va": po, "fat_offset": fo + po, "orig": s["o"], "patch": s["x"], "name": s["n"]})
 
 
-def _find_stereo_arm64(slice_info, out):
-    d, fo = slice_info["data"], slice_info["fat_offset"]
-    seen = {}
-    for s in _ARM64_STEREO:
-        pat = Signature._parse(s["p"])
-        ms = [x for x in scan_pattern(d, pat) if x >= MIN_ARM64_VA]
-        occ = s.get("occ", 1)
-        if len(ms) < occ:
+def _arm64_stereo_lookup_symbol(func_syms, pattern, cache):
+    if pattern in cache:
+        return cache[pattern]
+    candidates = [(n, s) for n, s in func_syms.items() if pattern in n]
+    if not candidates:
+        cache[pattern] = None
+        return None
+
+    def _rank(item):
+        name, sym = item
+        score = sym["value"]
+        if "absl" in name or "invocable" in name or "trace_event" in name:
+            score += 1 << 40
+        if name.endswith(pattern) or f"{pattern}E" in name:
+            score -= 1 << 20
+        return score
+
+    best = min(candidates, key=_rank)[1]
+    cache[pattern] = best
+    return best
+
+
+def _arm64_stereo_resolve_symbol(func_syms, spec, sym_cache):
+    sym = _arm64_stereo_lookup_symbol(func_syms, spec["symbol"], sym_cache)
+    if sym is not None:
+        return sym
+    for alt in spec.get("symbol_alternates", ()):
+        sym = _arm64_stereo_lookup_symbol(func_syms, alt, sym_cache)
+        if sym is not None:
+            return sym
+    return None
+
+
+def _append_arm64_stereo_patch(out, fo, po, spec, already=False):
+    entry = {
+        "arch": "arm64",
+        "va": po,
+        "fat_offset": fo + po,
+        "orig": spec["orig"],
+        "patch": spec["patch"],
+        "name": spec["name"],
+    }
+    if already:
+        entry["already_patched"] = True
+    out.append(entry)
+
+
+def _find_stereo_arm64(slice_info, full_data, out):
+    d = slice_info["data"]
+    fo = slice_info["fat_offset"]
+
+    arm64_info = _parse_macho_slice(full_data, fo)
+    if not arm64_info or not arm64_info.get("has_symbols"):
+        return
+
+    func_syms = arm64_info["func_symbols"]
+    sym_cache = {}
+
+    for spec in _ARM64_STEREO_SYMBOLS:
+        sym = _arm64_stereo_resolve_symbol(func_syms, spec, sym_cache)
+        if sym is None:
             continue
-        m = ms[occ - 1]
-        po = m + s["t"]
-        orig = _parse_hex_bytes(s["o"])
-        if d[po : po + len(orig)] != orig:
+
+        func_va = sym["value"]
+        orig = _parse_hex_bytes(spec["orig"])
+        patch_bytes = _parse_hex_bytes(spec["patch"])
+
+        if spec.get("bl_target"):
+            target_sym = _arm64_stereo_lookup_symbol(func_syms, spec["bl_target"], sym_cache)
+            if target_sym is None:
+                continue
+            target_va = target_sym["value"]
+            scan_end = min(func_va + spec.get("scan_range", 512), len(d))
+            for off in range(func_va, scan_end - 3, 4):
+                if _arm64_bl_destination(d, off) != target_va:
+                    continue
+                current = d[off : off + 4]
+                dyn_spec = dict(spec)
+                dyn_spec["orig"] = " ".join(f"{b:02X}" for b in current)
+                if current == patch_bytes:
+                    _append_arm64_stereo_patch(out, fo, off, dyn_spec, already=True)
+                elif (current[3] & 0xFC) == 0x94:
+                    _append_arm64_stereo_patch(out, fo, off, dyn_spec)
+                break
             continue
-        ok, conf, val_msgs = _run_patch_site_validation(d, po, s, 0)
-        if not ok:
-            for vmsg in val_msgs:
-                print(f"[warn] {vmsg}")
-            print(f"[warn] {s['n']}: validation failed (confidence {conf}), skipping stereo patch")
+
+        if spec.get("prologue_scan"):
+            scan_end = min(func_va + spec["prologue_scan"], len(d))
+            found = False
+            for po in range(func_va, scan_end - len(orig) + 1, 4):
+                current = d[po : po + len(orig)]
+                if current == orig:
+                    _append_arm64_stereo_patch(out, fo, po, spec)
+                    found = True
+                    break
+                if current == patch_bytes:
+                    _append_arm64_stereo_patch(out, fo, po, spec, already=True)
+                    found = True
+                    break
+            if not found:
+                continue
             continue
-        key = (s["n"], occ)
-        if key in seen:
+
+        if spec.get("at_start"):
+            po = func_va
+            if po + len(orig) > len(d):
+                continue
+            current = d[po : po + len(orig)]
+            if current == orig:
+                _append_arm64_stereo_patch(out, fo, po, spec)
+            elif current == patch_bytes:
+                _append_arm64_stereo_patch(out, fo, po, spec, already=True)
             continue
-        seen[key] = True
-        out.append({"arch": "arm64", "va": po, "fat_offset": fo + po, "orig": s["o"], "patch": s["x"], "name": s["n"]})
+
+        search_insn = spec["search_insn"]
+        scan_range = spec.get("scan_range", 256)
+        occurrence = spec.get("occurrence", 1)
+        insn_len = len(search_insn)
+        poff = spec.get("patch_offset", 0)
+        if spec.get("scan_slice"):
+            scan_start = MIN_ARM64_VA
+            scan_end = len(d)
+        else:
+            scan_start = func_va
+            scan_end = min(func_va + scan_range, len(d))
+        hit = 0
+        found = False
+        for off in range(scan_start, scan_end - insn_len + 1, 4):
+            if d[off : off + insn_len] != search_insn:
+                continue
+            hit += 1
+            if hit != occurrence:
+                continue
+            po = off + poff
+            current = d[po : po + len(orig)]
+            if current == orig:
+                _append_arm64_stereo_patch(out, fo, po, spec)
+            elif current == patch_bytes:
+                _append_arm64_stereo_patch(out, fo, po, spec, already=True)
+            found = True
+            break
+
+        if found or len(orig) != len(patch_bytes):
+            continue
+        hit = 0
+        for off in range(scan_start, scan_end - insn_len + 1, 4):
+            patched_insn = bytearray(search_insn)
+            for i, b in enumerate(patch_bytes):
+                idx = poff + i
+                if idx < insn_len:
+                    patched_insn[idx] = b
+            if d[off : off + insn_len] != bytes(patched_insn):
+                continue
+            hit += 1
+            if hit == occurrence:
+                _append_arm64_stereo_patch(out, fo, off + poff, spec, already=True)
+                break
 
 
 def find_macos_stereo_patches(data):
@@ -1322,13 +1608,11 @@ def find_macos_stereo_patches(data):
         if sl["arch"] == "x86_64":
             _find_stereo_x86(sl, out)
         else:
-            _find_stereo_arm64(sl, out)
+            _find_stereo_arm64(sl, data, out)
     return out
 
-# endregion macOS Stereo Patch Finder
 
 
-# region Format Detection
 
 def detect_binary_format(data):
     pe = parse_pe(data)
@@ -1534,42 +1818,6 @@ def _linux_scan_within_function(data, func_start, func_size, scan_type, adj):
                 return func_start + idx + adj
         return None
 
-    if scan_type == "fec_recreate_jnz":
-        needles = (
-            b'\x41\x80\xbe\x1c\x01\x00\x00\x00',
-            b'\x41\x80\xbc\x1c\x01\x00\x00\x00',
-            b'\x41\x80\x7c\x24\x1c\x01',
-            b'\x80\x79\x1c\x01',
-        )
-        for needle in needles:
-            idx = func.find(needle)
-            if idx >= 0 and idx + len(needle) < flen and func[idx + len(needle)] in (0x74, 0x75):
-                return func_start + idx + len(needle) + adj
-        return None
-
-    if scan_type == "fec_multichannel_jnz":
-        needles = (
-            b'\x41\x80\xbf\x18\x01\x00\x00\x00',
-            b'\x41\x80\xbd\x18\x01\x00\x00\x00',
-            b'\x41\x80\x7d\x18\x01',
-        )
-        for needle in needles:
-            idx = func.find(needle)
-            if idx >= 0 and idx + len(needle) < flen and func[idx + len(needle)] in (0x74, 0x75):
-                return func_start + idx + len(needle) + adj
-        return None
-
-    if scan_type == "fec_set_jz":
-        needles = (
-            b'\x48\x8b\xbf\xa8\x00\x00\x00\x85\xf6',
-            b'\x48\x8b\x89\xa8\x00\x00\x00\x84\xd2',
-        )
-        for needle in needles:
-            idx = func.find(needle)
-            if idx >= 0 and idx + len(needle) < flen and func[idx + len(needle)] in (0x74, 0x75):
-                return func_start + idx + len(needle) + adj
-        return None
-
     if scan_type == "mono_downmix_test":
         def _mono_match_at(i):
             if func[i:i+2] != b'\x84\xc0' or func[i+2] != 0x74:
@@ -1610,7 +1858,201 @@ def _linux_scan_within_function(data, func_start, func_size, scan_type, adj):
             short_best = off
         return short_best
 
+    if scan_type == "stereo_check1":
+        hits = _linux_stereo_cmp_imm_hits(func, func_start)
+        return hits[0] if hits else None
+
+    if scan_type == "stereo_check_dword_f0_imm2":
+        idx = func.find(b"\x83\xbb\xf0\x00\x00\x00\x02")
+        if idx < 0:
+            for i in range(flen - 7):
+                if func[i] == 0x83 and func[i + 2 : i + 6] == b"\xf0\x00\x00\x00" and func[i + 6] == 0x02:
+                    return func_start + i + 6 + adj
+            return None
+        return func_start + idx + 6 + adj
+
+    if scan_type == "function_entry":
+        return func_start + adj
+
+    if scan_type == "select_sample_rate_imm48k":
+        idx = func.find(b"\x41\xbd\x00\x7d\x00\x00")
+        if idx >= 0:
+            return func_start + idx + adj
+        return None
+
+    if scan_type == "webrtcopus_setbitrate_force":
+        # WebRtcOpus_SetBitRate prologue: ... push rbp; mov rbp,rsp; mov edx,esi
+        # Patch site = the 'push rbp' (overwritten with: push rbp; mov edx, BITRATE_BPS).
+        idx = func.find(b"\x55\x48\x89\xe5\x89\xf2")
+        if idx >= 0:
+            return func_start + idx + adj
+        return None
+
+    if scan_type == "celt_user_forced_mode":
+        # opus_encoder_init: REX.W C7 /0 [reg+0x88], imm32 == -1000 (OPUS_AUTO).
+        # Patch the imm32 (offset +7) to 1002 (MODE_CELT_ONLY).
+        for i in range(flen - 11):
+            if (func[i] == 0x48 and func[i + 1] == 0xC7 and 0x80 <= func[i + 2] <= 0x87
+                    and func[i + 3 : i + 7] == b"\x88\x00\x00\x00"
+                    and func[i + 7 : i + 11] == b"\x18\xfc\xff\xff"):
+                return func_start + i + 7 + adj
+        return None
+
+    if scan_type == "celt_default_mode":
+        # opus_encoder_init: C7 /0 [reg+0x3794], imm32 == 1001 (HYBRID).
+        # Patch the imm32 (offset +6) to 1002 (MODE_CELT_ONLY).
+        for i in range(flen - 10):
+            if (func[i] == 0xC7 and 0x80 <= func[i + 1] <= 0x87
+                    and func[i + 2 : i + 6] == b"\x94\x37\x00\x00"
+                    and func[i + 6 : i + 10] == b"\xe9\x03\x00\x00"):
+                return func_start + i + 6 + adj
+        return None
+
     return None
+
+
+def _linux_stereo_cmp_imm_hits(func, func_start):
+    import struct as _st
+
+    flen = len(func)
+    hits = []
+    for i in range(flen - 8):
+        if func[i] != 0x80:
+            continue
+        modrm = func[i + 1]
+        if not (0xB8 <= modrm <= 0xBF) or (modrm & 7) == 4:
+            continue
+        val = func[i + 6]
+        jcc_byte = func[i + 7]
+        if val not in (0x00, 0x01):
+            continue
+        if jcc_byte not in (0x74, 0x75, 0x0F):
+            continue
+        if jcc_byte == 0x0F and i + 9 <= flen and func[i + 8] not in (0x84, 0x85):
+            continue
+        member_off = _st.unpack_from("<I", func, i + 2)[0]
+        if not (0x100 < member_off < 0x1000):
+            continue
+        fo = func_start + i + 6
+        if fo not in hits:
+            hits.append(fo)
+    return hits
+
+
+def _linux_pick_symbol(func_syms, patterns):
+    """Prefer real mangled implementations over absl/std wrappers."""
+    scored = []
+    seen = set()
+    for pattern in patterns:
+        pl = pattern.lower()
+        for sym_name, sym in func_syms.items():
+            addr = sym.get("value", 0)
+            if not addr or addr in seen:
+                continue
+            snl = sym_name.lower()
+            if pl not in snl:
+                continue
+            seen.add(addr)
+            score = sym.get("size", 0)
+            if sym_name.startswith("_ZN"):
+                score += 10_000
+            if snl.endswith(pl) or f"{pl}e" in snl:
+                score += 1_000
+            scored.append((score, sym))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: -x[0])
+    return scored[0][1]
+
+
+def _resolve_linux_extra_elf(bin_info, data):
+    if not bin_info.get("has_symbols") or not bin_info.get("func_symbols"):
+        return {}
+    func_syms = bin_info["func_symbols"]
+    adj = bin_info.get("file_offset_adjustment", 0)
+    out = {}
+    for offset_name, mapping in LINUX_EXTRA_ELF_MAP.items():
+        best = _linux_pick_symbol(func_syms, mapping["patterns"])
+        if best is None:
+            continue
+        func_size = best.get("size", 0) or 0x2000
+        if func_size > 0x10000:
+            func_size = 0x2000
+        func_file_start = best["value"] - adj
+        if func_file_start < 0:
+            continue
+        linux_scan = mapping.get("linux_scan")
+        if not linux_scan:
+            continue
+        result = _linux_scan_within_function(data, func_file_start, func_size, linux_scan, adj)
+        if result is not None:
+            out[offset_name] = result - adj if result >= adj else result
+    return out
+
+
+def _linux_apply_tier_derivations(data, out):
+    tier_specs = (
+        ("RecreateEncoder_BitrateCalcLow_Channels_Mov248k",
+         "RecreateEncoder_BitrateCalcMid_Channels_Mov248k",
+         "RecreateEncoder_BitrateCalcHigh_Channels_Mov248k",
+         (b"\x45\x69\xed\xe0\x2e\x00\x00", b"\x45\x69\xed\x20\x4e\x00\x00", b"\x45\x69\xed\x00\x7d\x00\x00"),
+         (0x1E, 0x33)),
+        ("MultiChannelRecreate_BitrateCalcLow_Channels_Mov248k",
+         "MultiChannelRecreate_BitrateCalcMid_Channels_Mov248k",
+         "MultiChannelRecreate_BitrateCalcHigh_Channels_Mov248k",
+         (b"\x69\xed\xe0\x2e\x00\x00", b"\x69\xed\x20\x4e\x00\x00", b"\x69\xed\x00\x7d\x00\x00"),
+         (0x1E, 0x33)),
+        ("AudioBitrateAdaptorCalc32k_Channels_Mov248k",
+         "AudioBitrateAdaptorCalc48k_Channels_Mov248k",
+         "AudioBitrateAdaptorCalc60k_Channels_Mov248k",
+         (b"\x69\xd6\x00\x7d\x00\x00", b"\x69\xd6\x80\xbb\x00\x00", b"\x69\xd6\x60\xea\x00\x00"),
+         (0xF, 0x1E)),
+    )
+    for low_k, mid_k, high_k, patterns, (mid_d, high_d) in tier_specs:
+        lo = out.get(low_k)
+        if lo is None:
+            continue
+        sz = len(patterns[0])
+        if lo + sz <= len(data) and data[lo : lo + sz] == patterns[0]:
+            pass
+        elif not any(lo + sz <= len(data) and data[lo : lo + sz] == p for p in patterns):
+            continue
+        if mid_k not in out and lo + mid_d + sz <= len(data):
+            if data[lo + mid_d : lo + mid_d + sz] == patterns[1]:
+                out[mid_k] = lo + mid_d
+        if high_k not in out and lo + high_d + sz <= len(data):
+            if data[lo + high_d : lo + high_d + sz] == patterns[2]:
+                out[high_k] = lo + high_d
+
+
+def resolve_linux_patcher_offsets(windows_results, data, bin_info):
+    """Map Windows-style finder results to discord_voice_patcher_linux.sh names."""
+    adj = bin_info.get("file_offset_adjustment", 0) if bin_info else 0
+    out = {}
+    for win_key, linux_name in LINUX_FROM_WINDOWS.items():
+        if win_key in windows_results:
+            out[linux_name] = windows_results[win_key] - adj
+    extra = _resolve_linux_extra_elf(bin_info, data)
+    for k, v in extra.items():
+        out[k] = v
+    caf = out.get("CreateAudioFrame_Channels_MovImm2")
+    if caf is not None:
+        for delta in (0, -3):
+            off = caf + delta
+            if off >= 0 and off + 3 <= len(data) and bytes(data[off : off + 3]) == b"\x49\x39\xc4":
+                out["CreateAudioFrame_Channels_MovImm2"] = off
+                break
+    return out
+
+
+def _linux_patcher_stats(linux_offsets):
+    found = sum(1 for n in LINUX_PATCHER_OFFSET_ORDER if linux_offsets.get(n))
+    missing = [n for n in LINUX_PATCHER_OFFSET_ORDER if not linux_offsets.get(n)]
+    return {
+        "found": found,
+        "expected": len(LINUX_PATCHER_OFFSET_ORDER),
+        "missing": missing,
+    }
 
 
 def _arm64_scan_within_function(data, func_start, func_size, scan_type, adj):
@@ -1904,10 +2346,8 @@ def _resolve_elf_symbols(bin_info, data):
 
     return resolved, details
 
-# endregion Format Detection
 
 
-# region Signature Scanner
 
 def scan_pattern(data, pattern, limit=0, start=0, end=None):
     matches = []
@@ -1982,11 +2422,6 @@ def find_offset(data, sig, text_start=0, text_end=None):
             if len(valid) >= 1:
                 resolved = valid
 
-        if sig.name == "SetFec_EnableBranch_Jmp" and len(resolved) > 1:
-            resolved = [min(resolved)]
-        if sig.name == "SetDtx_EnableBranch_Jmp" and len(resolved) > 1:
-            resolved = [max(resolved)]
-
         if sig.name == "CommitAudioCodec_ChannelCount_Imm02" and len(resolved) >= 1:
             resolved = [m for m in resolved if _ess1_no_duplicate_cmp_in_next_24(data, m)]
             if not resolved:
@@ -2036,10 +2471,8 @@ def find_offset(data, sig, text_start=0, text_end=None):
     return None, f"no matches across {len(tiers)} tier(s)", "none"
 
 
-# endregion Signature Scanner
 
 
-# region Patch Safety and Heuristics
 
 CONFIDENCE_THRESHOLD = 75
 CONFIDENCE_SIGNATURE_MATCH = 50
@@ -2408,10 +2841,8 @@ def _run_patch_site_validation(data, file_offset, sig_or_dict, adj=0):
     return ok, conf, msgs
 
 
-# endregion Patch Safety and Heuristics
 
 
-# region Offset Discovery Engine
 
 def _topo_sort_derivations(derivations):
     all_derived = set(derivations.keys())
@@ -2473,13 +2904,8 @@ _WINDOWS_PATCHER_OFFSET_ORDER = (
     "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k",
     "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10",
     "AudioEncoderOpusConfig_Ctor_Application_ImmAudio",
-    "RecreateEncoderInstance_FecBranch_Jmp",
-    "MultiChannelRecreateEncoder_FecBranch_Jmp",
-    "SetFec_EnableBranch_Jmp",
-    "RecreateEncoderInstance_DtxBranch_Jmp",
-    "MultiChannelRecreateEncoder_DtxBranch_Jmp",
-    "SetDtx_EnableBranch_Jmp",
-    "CopyRedEncodeImpl_RedundantCopy_JmpNear",
+    "CELT_Force",
+    "CELT_DefaultMode",
     "NetEqDelayManager_MsPerLoss_Imm0",
     "PacerBlockAudio_Flag_XorFalse",
     "SetAutomaticGainControlConfig_Entry_Ret",
@@ -2491,14 +2917,11 @@ _WINDOWS_PATCHER_OFFSET_ORDER = (
     "SetNoiseCancellation_Entry_Ret",
     "SetNoiseCancellationDuringProcessing_Entry_Ret",
 )
-_WINDOWS_PATCHER_CORE_COUNT = 45
-if len(_WINDOWS_PATCHER_OFFSET_ORDER) != 55:
-    raise RuntimeError("_WINDOWS_PATCHER_OFFSET_ORDER must be 55 entries (patcher v18.2 sync)")
+_WINDOWS_PATCHER_CORE_COUNT = 40
+if len(_WINDOWS_PATCHER_OFFSET_ORDER) != 50:
+    raise RuntimeError("_WINDOWS_PATCHER_OFFSET_ORDER must be 50 entries (patcher v19.0 sync: forced CELT, FEC/DTX/RED removed)")
 
 ALL_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT])
-if tuple(ALL_OFFSET_NAMES) != tuple(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT]):
-    raise RuntimeError("ALL_OFFSET_NAMES must match _WINDOWS_PATCHER_OFFSET_ORDER core slice")
-
 WINDOWS_PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[:_WINDOWS_PATCHER_CORE_COUNT])
 WINDOWS_EXTENDED_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER[_WINDOWS_PATCHER_CORE_COUNT:])
 
@@ -2527,8 +2950,8 @@ WINDOWS_DISCORD_EXPORT_NAMES = {
     "SetNoiseCancellation_Entry_Ret": "?SetNoiseCancellation@Discord@@QEAAX_N@Z",
     "SetNoiseCancellationDuringProcessing_Entry_Ret": "?SetNoiseCancellationDuringProcessing@Discord@@QEAAX_N@Z",
 }
-if set(WINDOWS_DISCORD_EXPORT_NAMES) != set(_WINDOWS_PATCHER_OFFSET_ORDER[47:]):
-    raise RuntimeError("WINDOWS_DISCORD_EXPORT_NAMES keys must match Discord API LOCK entries in _WINDOWS_PATCHER_OFFSET_ORDER[47:]")
+if set(WINDOWS_DISCORD_EXPORT_NAMES) != set(_WINDOWS_PATCHER_OFFSET_ORDER[42:]):
+    raise RuntimeError("WINDOWS_DISCORD_EXPORT_NAMES keys must match Discord API LOCK entries in _WINDOWS_PATCHER_OFFSET_ORDER[42:]")
 
 PATCHER_OFFSET_NAMES = list(_WINDOWS_PATCHER_OFFSET_ORDER)
 
@@ -3926,10 +4349,8 @@ def _discover_offsets_impl(data, bin_info):
     return results, errors, adj, tiers_used
 
 
-# endregion Offset Discovery Engine
 
 
-# region Validation
 
 EXPECTED_ORIGINALS = {
     "CommitAudioCodec_ChannelCount_Imm02":    ("01", 1),
@@ -3970,13 +4391,8 @@ EXPECTED_ORIGINALS = {
     "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k":       ("00 7D 00 00", 4),
     "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10":       ("14", 1),
     "AudioEncoderOpusConfig_Ctor_Application_ImmAudio":  ("01", 1),
-    "RecreateEncoderInstance_FecBranch_Jmp":    ("75", 1),
-    "MultiChannelRecreateEncoder_FecBranch_Jmp": ("75", 1),
-    "SetFec_EnableBranch_Jmp":                ("74", 1),
-    "RecreateEncoderInstance_DtxBranch_Jmp":    ("75", 1),
-    "MultiChannelRecreateEncoder_DtxBranch_Jmp": ("75", 1),
-    "SetDtx_EnableBranch_Jmp":                ("74", 1),
-    "CopyRedEncodeImpl_RedundantCopy_JmpNear":            ("0F 84", 2),
+    "CELT_Force":        ("18 FC FF FF", 4),
+    "CELT_DefaultMode":  ("E9 03 00 00", 4),
     "NetEqDelayManager_MsPerLoss_Imm0": ("48 B8 14 00 00 00 C8 00 00 00", 10),
     "PacerBlockAudio_Flag_XorFalse": ("0F 94 C3", 3),
 }
@@ -4072,13 +4488,8 @@ PATCH_INFO = {
     "AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k":       (BITRATE_PATCH_4, "Config qword: 32000->248000"),
     "AudioEncoderOpusConfig_Ctor_FrameMs_Imm10":       ("0A", "Opus config ctor frame_size_ms 20->10"),
     "AudioEncoderOpusConfig_Ctor_Application_ImmAudio":  ("01", "Opus config ctor application kAudio"),
-    "RecreateEncoderInstance_FecBranch_Jmp":    ("EB", "RecreateEncoderInstance: jnz EnableFec -> jmp DisableFec"),
-    "MultiChannelRecreateEncoder_FecBranch_Jmp": ("EB", "MultiChannel RecreateEncoder: jnz EnableFec -> jmp DisableFec"),
-    "SetFec_EnableBranch_Jmp":                ("EB", "AudioEncoderOpusImpl::SetFec: jz EnableFec -> jmp DisableFec"),
-    "RecreateEncoderInstance_DtxBranch_Jmp":    ("EB", "RecreateEncoderInstance: jnz EnableDtx -> jmp DisableDtx"),
-    "MultiChannelRecreateEncoder_DtxBranch_Jmp": ("EB", "MultiChannel Recreate: jnz EnableDtx -> jmp DisableDtx"),
-    "SetDtx_EnableBranch_Jmp":                ("EB", "AudioEncoderOpusImpl::SetDtx: jz -> jmp DisableDtx"),
-    "CopyRedEncodeImpl_RedundantCopy_JmpNear":            ("E9", "AudioEncoderCopyRed::EncodeImpl skip RED (JZ near->JMP near)"),
+    "CELT_Force":        ("EA 03 00 00", "opus_encoder_init user_forced_mode -1000->1002 (CELT_ONLY)"),
+    "CELT_DefaultMode":  ("EA 03 00 00", "opus_encoder_init default st->mode 1001->1002 (CELT_ONLY)"),
     "NetEqDelayManager_MsPerLoss_Imm0": ("48 B8 00 00 00 00 00 00 00 00", "imm64 -> 0"),
     "PacerBlockAudio_Flag_XorFalse": ("30 DB 90", "setz bl -> xor bl,bl; nop"),
 }
@@ -4186,7 +4597,6 @@ def check_injection_sites(data, results, adj):
         print(f"  [{status:4s}] {name:30s}  available={available} (0x{available:X})  "
               f"needed={inject_size} (0x{inject_size:X})  margin={margin:+d} bytes")
 
-# endregion Validation
 
 
 def _md5_file_hex(file_path, lower=False):
@@ -4195,7 +4605,6 @@ def _md5_file_hex(file_path, lower=False):
     return h.lower() if lower else h
 
 
-# region Output Formatters
 
 def _format_rva(rva):
     return f"0x{int(rva):08X}"
@@ -4315,9 +4724,6 @@ def _validate_pe_offsets_for_patcher(results, bin_info, file_size):
         if file_off < 0 or file_off >= file_size - 512:
             return False, f"{name} (0x{rva:X}) out of file bounds"
     return True, None
-
-
-WINDOWS_PATCHER_OFFSET_ORDER = list(WINDOWS_PATCHER_OFFSET_NAMES)
 
 
 def _read_discord_app_build_sidecar(parent_dir):
@@ -4613,16 +5019,13 @@ PATCHER_DEBUG_GROUPS = {
         ("AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k", "OpusEncoderConfig ctor literal (32000->248000)"),
         ("AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k", "OpusEncoderConfig ctor literal (32000->248000)"),
     ],
-    "FEC": [
+    "OPUS": [
         ("AudioEncoderOpusConfig_Ctor_FrameMs_Imm10", "Opus config ctor frame_size_ms 20->10"),
         ("AudioEncoderOpusConfig_Ctor_Application_ImmAudio", "Opus config ctor application kAudio (1)"),
-        ("RecreateEncoderInstance_FecBranch_Jmp", "RecreateEncoderInstance: force DisableFec (JMP)"),
-        ("MultiChannelRecreateEncoder_FecBranch_Jmp", "MultiChannel Recreate: force DisableFec (JMP)"),
-        ("SetFec_EnableBranch_Jmp", "AudioEncoderOpusImpl::SetFec: force DisableFec (JMP)"),
-        ("RecreateEncoderInstance_DtxBranch_Jmp", "RecreateEncoderInstance: force DisableDtx (JMP)"),
-        ("MultiChannelRecreateEncoder_DtxBranch_Jmp", "MultiChannel Recreate: force DisableDtx (JMP)"),
-        ("SetDtx_EnableBranch_Jmp", "AudioEncoderOpusImpl::SetDtx: force DisableDtx (JMP)"),
-        ("CopyRedEncodeImpl_RedundantCopy_JmpNear", "AudioEncoderCopyRed::EncodeImpl skip RED copy"),
+    ],
+    "CELT": [
+        ("CELT_Force", "opus_encoder_init user_forced_mode -1000->1002 (CELT_ONLY)"),
+        ("CELT_DefaultMode", "opus_encoder_init default st->mode 1001->1002 (CELT_ONLY)"),
     ],
     "NETEQ": [
         ("NetEqDelayManager_MsPerLoss_Imm0", "NetEq ms_per_loss_percent -> 0 (optional; off by default)"),
@@ -4657,64 +5060,110 @@ def format_windows_debug_mode(results=None):
     return "\n".join(lines).rstrip()
 
 
-def format_linux_patcher_block(results, bin_info, file_path, file_size):
+def format_linux_patcher_block(results, bin_info, file_path, file_size, data=None):
     if not bin_info or not file_path or file_size is None:
         return None
     fmt = bin_info.get('format', 'raw')
     if fmt != 'elf':
         return None
-    adj = bin_info.get('file_offset_adjustment', 0)
+    if data is None:
+        try:
+            data = file_path.read_bytes()
+        except Exception:
+            data = b""
+    linux_off = resolve_linux_patcher_offsets(results, data, bin_info)
+    st = _linux_patcher_stats(linux_off)
     md5 = _md5_file_hex(file_path, lower=True)
+    missing = st["missing"]
     lines = [
-        "# discord_voice_patcher_linux.sh - EXPECTED_* + OFFSET_* from finder",
+        "# region Offsets (PASTE HERE) -> discord_voice_patcher_linux.sh",
+        f"# discord_voice_node_offset_finder.py v{VERSION}  |  sites {st['found']}/{st['expected']}",
+    ]
+    if missing:
+        lines.append("# WARNING unresolved (left as 0x0, fix before patching): " + ", ".join(missing))
+    lines += [
         f'EXPECTED_MD5="{md5}"',
         f"EXPECTED_SIZE={file_size}",
+        "FILE_OFFSET_ADJUSTMENT=0",
         "",
     ]
-    ordered = WINDOWS_PATCHER_OFFSET_ORDER
-    prefix = "OFFSET_"
-    key_w = max(len(prefix + n) for n in ordered)
-    for name in ordered:
-        key = prefix + name
-        pad = " " * max(0, key_w - len(key))
-        if name in results:
-            file_off = results[name] - adj
-            lines.append(f"{key}{pad} = {_format_rva(file_off)}")
-        else:
-            lines.append(f"{key}{pad} = 0x00000000")
-    extra_val = 0
-    if "OpusEncoderConfig_SetMultiChannelStereo" in results:
-        extra_val = results["OpusEncoderConfig_SetMultiChannelStereo"] - adj
-    extra = f"OFFSET_OpusEncoderConfig_SetMultiChannelStereo = {_format_rva(extra_val)}"
-    inserted = False
-    for i, line in enumerate(lines):
-        if line.startswith("OFFSET_AudioEncoderOpusConfig_Ctor_Channels_Imm02"):
-            lines.insert(i + 1, extra)
-            inserted = True
-            break
-    if not inserted:
-        lines.append(extra)
-    lines.append("FILE_OFFSET_ADJUSTMENT=0")
+    # Paste-ready bash assignments (no spaces around '=').
+    for name in LINUX_PATCHER_OFFSET_ORDER:
+        file_off = linux_off.get(name, 0)
+        lines.append(f"OFFSET_{name}={_format_rva(file_off)}")
+    lines.append("# endregion")
     lines.append("")
-    lines.append("# Required offset names (18 Windows + Linux MultiChannel); validate before build.")
     lines.append("REQUIRED_OFFSET_NAMES=(")
-    lines.append("    CreateAudioFrame_ChannelAssign_Mov AudioEncoderOpusConfig_Ctor_Channels_Imm02 OpusEncoderConfig_SetMultiChannelStereo CapturedAudioProcessor_MonoDownmix_NopJmp")
-    lines.append("    CommitAudioCodec_ChannelCount_Imm02 CommitAudioCodec_SuccessBranch_Jmp")
-    lines.append("    ApplySettings_BitrateCalcLow_Channels_Mov248k ApplySettings_BitrateCalcMid_Channels_Mov248k ApplySettings_BitrateCalcHigh_Channels_Mov248k")
-    lines.append("    RecreateEncoder_BitrateCalcLow_Channels_Mov248k RecreateEncoder_BitrateCalcMid_Channels_Mov248k RecreateEncoder_BitrateCalcHigh_Channels_Mov248k")
-    lines.append("    SetBitrateClamp_Max248k_Cmp SetBitrateClamp_Max248k_Mov")
-    lines.append("    AudioBitrateAdaptorCalc32k_Channels_Mov248k AudioBitrateAdaptorCalc48k_Channels_Mov248k AudioBitrateAdaptorCalc60k_Channels_Mov248k")
-    lines.append("    SetBitrate_Imm64_Imm248k SetBitrate_OrMask_Nop3")
-    lines.append("    SetTargetBitrate_Mulss_Nop6 GetMultipliedBitrate_Mulss_Nop7 GetMultipliedBitrate_Entry_IdentityRet")
-    lines.append("    SetTargetBitrate_ClampMax248k_Cmp SetTargetBitrate_ClampMax248k_Mov")
-    lines.append("    ApplySettings_MaxAvgBitrateClamp248k_Cmp ApplySettings_MaxAvgBitrateClamp248k_Mov")
-    lines.append("    EncoderOpusImpl_RelayClamp248k_Cmp EncoderOpusImpl_RelayClamp248k_Mov")
-    lines.append("    SelectSampleRate_Cmov48k_Nop3")
-    lines.append("    WebRtcSplHighPass_Dispatch_MovRet hp_cutoff_Callback_InjectShellcode dc_reject_Callback_InjectShellcode ChannelDownmix_Entry_Ret")
-    lines.append("    AudioEncoderOpusConfig_IsOK_MovTrueRet CodecMismatchThrow_Entry_Ret")
-    lines.append("    AudioEncoderOpusConfig_Ctor_Bitrate_Imm248k AudioEncoderMultiChannelOpusConfig_Ctor_Bitrate_Imm248k AudioEncoderOpusConfig_Ctor_FrameMs_Imm10 AudioEncoderOpusConfig_Ctor_Application_ImmAudio")
+    chunk = []
+    for name in LINUX_PATCHER_OFFSET_ORDER:
+        chunk.append(name)
+        if len(chunk) >= 4:
+            lines.append("    " + " ".join(chunk))
+            chunk = []
+    if chunk:
+        lines.append("    " + " ".join(chunk))
     lines.append(")")
     return "\n".join(lines) + "\n"
+
+
+def _macos_stereo_patch_stats(stereo_patches):
+    """Count arm64/x86_64 stereo table hits vs MACOS_ARM64_PATCHER_NAMES."""
+    if not stereo_patches:
+        return {"arm64_found": 0, "arm64_expected": len(MACOS_ARM64_PATCHER_NAMES),
+                "x86_found": 0, "arm64": [], "x86": []}
+    arm64 = [p for p in stereo_patches if p.get("arch") == "arm64"]
+    x86 = [p for p in stereo_patches if p.get("arch") == "x86_64"]
+    arm64_names = {p["name"] for p in arm64}
+    return {
+        "arm64_found": len(arm64),
+        "arm64_expected": len(MACOS_ARM64_PATCHER_NAMES),
+        "arm64_missing": [n for n in MACOS_ARM64_PATCHER_NAMES if n not in arm64_names],
+        "x86_found": len(x86),
+        "arm64": arm64,
+        "x86": x86,
+    }
+
+
+def format_arm64_patches_python_block(stereo_patches, file_path, file_size):
+    """Copy-paste block for apply_arm64_stereo_patches.py ARM64_PATCHES."""
+    if not stereo_patches:
+        return None
+    stats = _macos_stereo_patch_stats(stereo_patches)
+    arm64 = stats["arm64"]
+    if not arm64:
+        return None
+    md5 = _md5_file_hex(file_path, lower=True)
+    a64_info = None
+    try:
+        data = file_path.read_bytes()
+        macho = parse_macho(data)
+        if macho and macho.get("arm64_info"):
+            a64_info = macho["arm64_info"]
+    except Exception:
+        pass
+    lines = [
+        "# COPY -> apply_arm64_stereo_patches.py  (region ARM64 Patch Table)",
+        f"# discord_voice_node_offset_finder.py v{VERSION}",
+        f"# Size: {file_size} | MD5: {md5}",
+        f"# ARM64 stereo sites: {stats['arm64_found']}/{stats['arm64_expected']}",
+        "# Bitrate: runtime _scan_arm64_bitrate_literals / _scan_arm64_movz_32000 (not static table)",
+        "ARM64_PATCHES: List[dict] = [",
+    ]
+    for p in arm64:
+        lines.append(
+            f'    {{"name": "{p["name"]}", "fat_offset": 0x{p["fat_offset"]:X}, '
+            f'"orig": "{p["orig"]}", "patch": "{p["patch"]}"}},'
+        )
+    lines.append("]")
+    if a64_info:
+        lines.append("")
+        lines.append("PATCHES_META.update({")
+        lines.append(f'    "file_size": {file_size},')
+        lines.append(f'    "md5": "{md5}",')
+        lines.append(f'    "arm64_slice_offset": 0x{a64_info.get("fat_offset", 0):X},')
+        lines.append(f'    "arm64_slice_size": {a64_info.get("fat_size", 0)},')
+        lines.append("})")
+    return "\n".join(lines)
 
 
 def format_macos_patcher_block(results, bin_info, file_path, file_size,
@@ -4827,8 +5276,36 @@ def format_json(results, bin_info, file_path, file_size, adj, tiers_used,
                 })
         out["injection_sites"] = inject
 
+    if fmt == 'elf' and bin_info and results is not None:
+        try:
+            blob = file_path.read_bytes() if hasattr(file_path, "read_bytes") else b""
+        except Exception:
+            blob = b""
+        linux_off = resolve_linux_patcher_offsets(results, blob, bin_info)
+        lst = _linux_patcher_stats(linux_off)
+        out["linux_patcher"] = {
+            "tool": "discord_voice_patcher_linux.sh",
+            "found": lst["found"],
+            "expected": lst["expected"],
+            "missing": lst.get("missing", []),
+            "file_offsets": {n: hex(linux_off[n]) for n in LINUX_PATCHER_OFFSET_ORDER if linux_off.get(n)},
+        }
+        out["total_found"] = lst["found"]
+        out["total_expected"] = lst["expected"]
+
     if bin_info and fmt == 'macho' and 'stereo_patches' in bin_info:
-        out["stereo_patches"] = bin_info["stereo_patches"]
+        sp = bin_info["stereo_patches"]
+        out["stereo_patches"] = sp
+        st = _macos_stereo_patch_stats(sp)
+        out["macos_arm64_patcher"] = {
+            "tool": "apply_arm64_stereo_patches.py",
+            "found": st["arm64_found"],
+            "expected": st["arm64_expected"],
+            "missing": st.get("arm64_missing", []),
+            "x86_stereo_found": st["x86_found"],
+        }
+        out["total_found"] = st["arm64_found"]
+        out["total_expected"] = st["arm64_expected"]
 
     if arm64_results and arm64_info:
         a64_adj = arm64_adj if arm64_adj is not None else arm64_info.get('file_offset_adjustment', 0)
@@ -4850,10 +5327,8 @@ def format_json(results, bin_info, file_path, file_size, adj, tiers_used,
 
     return json.dumps(out, indent=2, ensure_ascii=True)
 
-# endregion Output Formatters
 
 
-# region Visualization
 
 def generate_viz_graph(results, out_dir):
     if not VIZ_AVAILABLE:
@@ -4898,10 +5373,8 @@ def generate_viz_graph(results, out_dir):
             pass
         return None
 
-# endregion Visualization
 
 
-# region Auto-Detection
 
 def find_discord_node():
     clients = ['discord', 'discordcanary', 'discordptb', 'discorddevelopment']
@@ -5031,10 +5504,8 @@ def find_discord_node():
 
     return None
 
-# endregion Auto-Detection
 
 
-# region Main
 
 def _cleanup_created_files(path_list):
     for p in path_list:
@@ -5166,8 +5637,6 @@ def main():
     if not quiet:
         print(f"  Discord app build:   {dapp_ver}  (source: {dapp_src})")
 
-    pe_info = bin_info if fmt == 'pe' else None
-
     stereo_patches = []
     if fmt == 'macho':
         stereo_patches = find_macos_stereo_patches(data)
@@ -5208,20 +5677,18 @@ def main():
             for w in xval_warnings:
                 print(f"  [XVAL] {w}")
 
-        if arm64_info and arm64_info.get("arch") == "arm64":
+        if fmt == 'macho' and stereo_patches:
+            st = _macos_stereo_patch_stats(stereo_patches)
             print("\n" + "=" * 65)
-            print("  ARM64 OFFSET DISCOVERY (Apple Silicon)")
+            print("  macOS ARM64 STEREO PATCH TABLE (apply_arm64_stereo_patches.py)")
             print("=" * 65)
-            n_arm64_sym = len(arm64_info.get('func_symbols', {}))
-            print(f"  arm64 slice: fat_offset=0x{arm64_info.get('fat_offset', 0):X}  "
-                  f"size={arm64_info.get('fat_size', 0):,} bytes")
-            print(f"  arm64 symbols: {n_arm64_sym} functions  "
-                  f"adjustment=0x{arm64_info.get('file_offset_adjustment', 0):X}")
+            print(f"  ARM64 static sites: {st['arm64_found']} / {st['arm64_expected']}")
+            if st.get("arm64_missing"):
+                print(f"  Missing: {', '.join(st['arm64_missing'])}")
+            print(f"  x86_64 stereo sites (informational): {st['x86_found']}")
+            print("  Note: Windows-style ARM64_OFFSETS scan skipped (not used by macOS patcher).")
 
-            arm64_results, _arm64_errors, arm64_adj, arm64_tiers = \
-                discover_offsets_arm64(data, arm64_info)
-
-        if len(results) >= 10:
+        if len(results) >= 10 and fmt != 'macho':
             viz_path = generate_viz_graph(results, file_path.parent)
             if viz_path:
                 created_files.append(viz_path)
@@ -5237,6 +5704,20 @@ def main():
             core_hits = sum(1 for n in ALL_OFFSET_NAMES if n in results)
             print(f"  Core offsets:      {core_hits} / {len(ALL_OFFSET_NAMES)}  (stereo/codec)")
             print(f"  x86_64 keys in map: {len(results)}")
+        elif fmt == 'macho':
+            st = _macos_stereo_patch_stats(stereo_patches)
+            print(f"  ARM64 patcher:    {st['arm64_found']} / {st['arm64_expected']}  (apply_arm64_stereo_patches.py)")
+            print(f"  x86_64 stereo:    {st['x86_found']} sites (legacy / informational)")
+            x86_legacy = sum(1 for n in ALL_OFFSET_NAMES if n in results)
+            print(f"  x86_64 legacy scan: {x86_legacy} / {len(ALL_OFFSET_NAMES)} Windows-style names (optional)")
+        elif fmt == 'elf':
+            linux_off = resolve_linux_patcher_offsets(results, data, bin_info)
+            lst = _linux_patcher_stats(linux_off)
+            print(f"  Linux patcher:    {lst['found']} / {lst['expected']}  (discord_voice_patcher_linux.sh)")
+            if lst.get("missing"):
+                print(f"  Missing: {', '.join(lst['missing'])}")
+            win_legacy = sum(1 for n in PATCHER_OFFSET_NAMES if n in results)
+            print(f"  Windows-style scan: {win_legacy} / {len(PATCHER_OFFSET_NAMES)} (optional / informational)")
         else:
             core_hits = sum(1 for n in ALL_OFFSET_NAMES if n in results)
             print(f"  Core offsets:       {core_hits} / {len(ALL_OFFSET_NAMES)}")
@@ -5245,10 +5726,6 @@ def main():
         print(f"  Warnings:         {warnings}")
         print(f"  Cross-validation: {len(xval_warnings)} issue(s)" if xval_warnings else "  Cross-validation: clean")
         print(f"  Errors:           {len(errors)}")
-
-        if arm64_info:
-            ac = sum(1 for n in ALL_OFFSET_NAMES if n in arm64_results)
-            print(f"  arm64 core:       {ac} / {len(ALL_OFFSET_NAMES)}  (map size {len(arm64_results)})")
 
         tier_counts = {}
         for name, tier in tiers_used.items():
@@ -5315,7 +5792,7 @@ def main():
                 print(ps_config)
 
             if fmt == 'elf':
-                linux_block = format_linux_patcher_block(results, bin_info, file_path, file_size)
+                linux_block = format_linux_patcher_block(results, bin_info, file_path, file_size, data=data)
                 if linux_block:
                     print("\n" + "=" * 65)
                     print("  COPY BELOW -> discord_voice_patcher_linux.sh")
@@ -5327,17 +5804,28 @@ def main():
                     print("--- END COPY ---")
                     print("")
             elif fmt == 'macho':
-                macos_block = format_macos_patcher_block(
-                    results, bin_info, file_path, file_size,
-                    arm64_results=arm64_results if arm64_results else None,
-                    arm64_info=arm64_info,
-                    arm64_adj=arm64_adj if arm64_results else None)
-                if macos_block:
+                arm64_block = format_arm64_patches_python_block(stereo_patches, file_path, file_size)
+                if arm64_block:
+                    print("\n" + "=" * 65)
+                    print("  COPY BELOW -> apply_arm64_stereo_patches.py")
+                    print("  Replace ARM64_PATCHES and PATCHES_META arm64 slice fields")
+                    print("=" * 65)
                     print("")
-                    print("--- BEGIN COPY (macOS) ---")
-                    print(macos_block)
+                    print("--- BEGIN COPY (macOS ARM64) ---")
+                    print(arm64_block)
                     print("--- END COPY ---")
                     print("")
+
+            if fmt == 'macho' and stereo_patches:
+                print("\n" + "=" * 65)
+                print("  macOS STEREO MIC PATCH TABLE (x86_64 + arm64)")
+                print("=" * 65)
+                print(f"  {'#':<3} {'Arch':<8} {'Fat Offset':<14} {'Orig->Patch':<30} {'Name'}")
+                print(f"  {'-'*3} {'-'*8} {'-'*14} {'-'*30} {'-'*30}")
+                for i, p in enumerate(stereo_patches, 1):
+                    print(f"  {i:<3} {p['arch']:<8} 0x{p['fat_offset']:08X}     {p['orig']}->{p['patch']:<20} {p['name']}")
+                print(f"\n  Total: {len(stereo_patches)} stereo patches (fat_offset = direct file offset)")
+                print("  Apply ARM64 slice: python3 apply_arm64_stereo_patches.py <discord_voice.node>")
 
             if fmt == 'elf':
                 offset_names = _all_offset_names()
@@ -5362,11 +5850,7 @@ def main():
                 wb = format_windows_patcher_block(results, bin_info, file_path, file_size, discord_app_version=dapp_ver)
                 file_content = [wb] if wb else []
             elif fmt == 'macho':
-                mb = format_macos_patcher_block(
-                    results, bin_info, file_path, file_size,
-                    arm64_results=arm64_results if arm64_results else None,
-                    arm64_info=arm64_info,
-                    arm64_adj=arm64_adj if arm64_results else None)
+                mb = format_arm64_patches_python_block(stereo_patches, file_path, file_size)
                 file_content = [mb] if mb else []
             else:
                 ps_config = format_powershell_config(results, bin_info, file_path, file_size)
@@ -5413,9 +5897,6 @@ def main():
         patcher_hits, n_pk = count_patcher_offsets_found(results or {})
         patcher_ok = (patcher_hits == n_pk) if results else False
 
-        core_hits = sum(1 for n in ALL_OFFSET_NAMES if n in results) if results else 0
-        arm64_core = sum(1 for n in ALL_OFFSET_NAMES if n in arm64_results) if arm64_results else -1
-
         if fmt == 'pe':
             if patcher_ok:
                 print(f"\n  *** ALL {n_pk} WINDOWS PATCHER OFFSETS FOUND ***")
@@ -5427,21 +5908,46 @@ def main():
                 else:
                     print(f"\n  *** INSUFFICIENT: Windows patcher needs all {n_pk} ***")
                     exit_code = 2
+        elif fmt == 'macho':
+            st = _macos_stereo_patch_stats(stereo_patches)
+            af, ae = st["arm64_found"], st["arm64_expected"]
+            if af == ae:
+                print(f"\n  *** ALL {af}/{ae} ARM64 STEREO PATCH SITES FOUND ***")
+                exit_code = 0
+            elif af >= ae - 2:
+                print(f"\n  *** PARTIAL: {af}/{ae} ARM64 stereo patch sites ***")
+                if st.get("arm64_missing"):
+                    print(f"  Missing: {', '.join(st['arm64_missing'])}")
+                exit_code = 1
+            else:
+                print(f"\n  *** INSUFFICIENT: {af}/{ae} ARM64 stereo patch sites ***")
+                if st.get("arm64_missing"):
+                    print(f"  Missing: {', '.join(st['arm64_missing'])}")
+                exit_code = 2
+        elif fmt == 'elf':
+            linux_off = resolve_linux_patcher_offsets(results, data, bin_info)
+            lst = _linux_patcher_stats(linux_off)
+            lf, le = lst["found"], lst["expected"]
+            if lf == le:
+                print(f"\n  *** ALL {lf}/{le} LINUX PATCHER OFFSETS FOUND ***")
+                exit_code = 0
+            elif lf >= le - 3:
+                print(f"\n  *** PARTIAL: {lf}/{le} Linux patcher offsets ***")
+                if lst.get("missing"):
+                    print(f"  Missing: {', '.join(lst['missing'])}")
+                exit_code = 1
+            else:
+                print(f"\n  *** INSUFFICIENT: {lf}/{le} Linux patcher offsets ***")
+                if lst.get("missing"):
+                    print(f"  Missing: {', '.join(lst['missing'])}")
+                exit_code = 2
         else:
             n_required = len(ALL_OFFSET_NAMES)
-            arm64_ok = (arm64_core < 0) or (arm64_core == n_required)
-            if core_hits == n_required and arm64_ok:
-                msg = f"*** ALL {n_required} CORE OFFSETS FOUND ***"
-                if arm64_core >= 0:
-                    msg += f"  |  arm64 core: {arm64_core}/{n_required}"
-                print(f"\n  {msg}")
+            if core_hits == n_required:
+                print(f"\n  *** ALL {n_required} CORE OFFSETS FOUND ***")
                 exit_code = 0
             elif core_hits >= n_required - 2:
-                print(f"\n  *** PARTIAL SUCCESS: {core_hits}/{n_required} core x86_64 offsets ***", end="")
-                if arm64_core >= 0 and arm64_core < n_required:
-                    print(f"  (arm64 core: {arm64_core}/{n_required})")
-                else:
-                    print()
+                print(f"\n  *** PARTIAL SUCCESS: {core_hits}/{n_required} core x86_64 offsets ***")
                 exit_code = 1
             else:
                 print(f"\n  *** INSUFFICIENT RESULTS: {core_hits}/{n_required} core x86_64 offsets ***")
@@ -5453,7 +5959,7 @@ def main():
                 print(emitted_json_text)
             elif fmt == 'pe' and results:
                 patcher_count, n_q = count_patcher_offsets_found(results)
-                xval = _cross_validate(results, adj, data, tiers_used=tiers_used)
+                xval = _cross_validate(results, adj, data, tiers_used=tiers_used, bin_fmt=fmt)
                 print("  {} / {}  (required for Discord_voice_node_patcher.ps1)".format(patcher_count, n_q))
                 print("  x86_64 discovered: {} offsets".format(len(results)))
                 if patcher_count == n_q:
@@ -5468,22 +5974,22 @@ def main():
                     print(win_block, end="")
                     print("--- END COPY ---")
             elif fmt == 'elf' and results:
-                linux_block = format_linux_patcher_block(results, bin_info, file_path, file_size)
+                linux_block = format_linux_patcher_block(results, bin_info, file_path, file_size, data=data)
                 if linux_block:
                     print("")
                     print("--- BEGIN COPY (Linux) ---")
                     print(linux_block)
                     print("--- END COPY ---")
-            elif fmt == 'macho' and results:
-                macos_block = format_macos_patcher_block(
-                    results, bin_info, file_path, file_size,
-                    arm64_results=arm64_results if arm64_results else None,
-                    arm64_info=arm64_info,
-                    arm64_adj=arm64_adj if arm64_results else None)
-                if macos_block:
+            elif fmt == 'macho' and stereo_patches:
+                st = _macos_stereo_patch_stats(stereo_patches)
+                print("  ARM64 patcher: {} / {}  (apply_arm64_stereo_patches.py)".format(
+                    st["arm64_found"], st["arm64_expected"]))
+                print("  Cross-validation: clean" if not xval_warnings else "  Cross-validation: {} issue(s)".format(len(xval_warnings)))
+                arm64_block = format_arm64_patches_python_block(stereo_patches, file_path, file_size)
+                if arm64_block:
                     print("")
-                    print("--- BEGIN COPY (macOS) ---")
-                    print(macos_block)
+                    print("--- BEGIN COPY (macOS ARM64) ---")
+                    print(arm64_block)
                     print("--- END COPY ---")
     return exit_code
 
@@ -5494,4 +6000,3 @@ if __name__ == '__main__':
         input("\n  Press Enter to close...")
     sys.exit(code)
 
-# endregion Main

@@ -6,7 +6,6 @@ fi
 
 set -euo pipefail
 
-# region Configuration
 INSTALL_DIR_NAME="Linux Stereo Installer"
 REPO_RAW_LINUX_UPDATES="https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Linux/Updates"
 
@@ -15,9 +14,7 @@ FILES=(
     "Stereo-Installer-Linux.sh|${REPO_RAW_LINUX_UPDATES}/Stereo-Installer-Linux.sh"
     "discord_voice_patcher_linux.sh|${REPO_RAW_LINUX_UPDATES}/discord_voice_patcher_linux.sh"
 )
-# endregion Configuration
 
-# region Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -25,14 +22,10 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 DIM='\033[0;90m'
 NC='\033[0m'
-# endregion Colors
 
-# region Flags
 NO_UPDATE=false
 FORCE=false
-# endregion Flags
 
-# region CLI
 usage() {
     echo -e "${BOLD}Discord Stereo Linux Launcher${NC}"
     echo ""
@@ -61,9 +54,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/${INSTALL_DIR_NAME}"
-# endregion CLI
 
-# region Hash helper (sha256sum or shasum -a 256)
 get_sha256() {
     local file="$1"
     if command -v sha256sum >/dev/null 2>&1; then
@@ -74,9 +65,7 @@ get_sha256() {
         echo ""
     fi
 }
-# endregion Hash helper
 
-# region Download (retries + payload validation)
 CURL_CONNECT_TIMEOUT=15
 CURL_MAX_TIME=120
 CURL_RETRIES=3
@@ -117,9 +106,7 @@ validate_download() {
     esac
     return 0
 }
-# endregion Download
 
-# region Banner
 echo ""
 echo -e "${CYAN}${BOLD}===== Discord Stereo Linux Launcher =====${NC}"
 echo -e "${DIM}48 kHz | 248 kbps | Stereo${NC}"
@@ -131,9 +118,7 @@ if ! [ -w "$INSTALL_DIR" ]; then
     echo -e "  Fix permissions or run from a directory you can write to."
     exit 1
 fi
-# endregion Banner
 
-# region Update step (skipped by --no-update)
 if $NO_UPDATE; then
     echo -e "${DIM}[--no-update] Skipping update check.${NC}"
 else
@@ -209,9 +194,7 @@ else
     fi
     echo ""
 fi
-# endregion Update step
 
-# region Local fallback (offline / cloned-repo support)
 copy_from_local_updates() {
     local src_dir="${SCRIPT_DIR}/Updates"
     local copied=0
@@ -246,9 +229,7 @@ if [ "$MISSING_ANY" = true ]; then
         echo ""
     fi
 fi
-# endregion Local fallback
 
-# region Launch
 cd "$INSTALL_DIR"
 
 if [ ! -f "Discord_Stereo_Installer_For_Linux.py" ]; then
@@ -280,4 +261,3 @@ fi
 echo -e "${CYAN}Launching GUI...${NC}"
 echo ""
 exec python3 Discord_Stereo_Installer_For_Linux.py "$@"
-# endregion Launch

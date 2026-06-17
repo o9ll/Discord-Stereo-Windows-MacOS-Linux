@@ -56,7 +56,6 @@ def _finder_script_search_dirs() -> list[Path]:
     return dirs
 
 
-# region Theme
 
 THEME = {
     "BG": "#1e1e1e",
@@ -71,7 +70,6 @@ THEME = {
     "BLUE": "#2196f3",
     "BLUE_HOVER": "#42a5f5",
     "ORANGE": "#ff9800",
-    "ORANGE_HOVER": "#ffb74d",
     "GRAY_BTN": "#555555",
     "GRAY_HOVER": "#666666",
     "RED": "#f44336",
@@ -92,7 +90,6 @@ GREEN_HOVER = THEME["GREEN_HOVER"]
 BLUE = THEME["BLUE"]
 BLUE_HOVER = THEME["BLUE_HOVER"]
 ORANGE = THEME["ORANGE"]
-ORANGE_HOVER = THEME["ORANGE_HOVER"]
 GRAY_BTN = THEME["GRAY_BTN"]
 GRAY_HOVER = THEME["GRAY_HOVER"]
 RED = THEME["RED"]
@@ -100,7 +97,6 @@ YELLOW = THEME["YELLOW"]
 CYAN = THEME["CYAN"]
 SELECT_BG = THEME["SELECT_BG"]
 
-# endregion Theme
 
 
 def _ascii_safe(s: str | bytes) -> str:
@@ -492,6 +488,14 @@ class OffsetFinderGUI:
             patcher_names = getattr(mod, "PATCHER_OFFSET_NAMES", None)
             patcher_names_u = list(dict.fromkeys(patcher_names)) if patcher_names else []
             is_pe = fmt == "pe"
+            is_macho = fmt == "macho"
+            is_elf = fmt == "elf"
+            stereo_patches = []
+            macos_st = None
+            if is_macho and hasattr(mod, "find_macos_stereo_patches"):
+                stereo_patches = mod.find_macos_stereo_patches(data)
+                if hasattr(mod, "_macos_stereo_patch_stats"):
+                    macos_st = mod._macos_stereo_patch_stats(stereo_patches)
             if is_pe and patcher_names_u and hasattr(mod, "count_patcher_offsets_found"):
                 patcher_count, n_patcher = mod.count_patcher_offsets_found(results)
             elif is_pe and patcher_names_u:
@@ -501,10 +505,21 @@ class OffsetFinderGUI:
                 patcher_count = found
                 _fallback_n = len(getattr(mod, "PATCHER_OFFSET_NAMES", []) or [])
                 n_patcher = len(patcher_names_u) if patcher_names_u else (_fallback_n if _fallback_n else 18)
-            n_expected = n_patcher
+            linux_st = None
+            if is_elf and hasattr(mod, "resolve_linux_patcher_offsets"):
+                linux_off = mod.resolve_linux_patcher_offsets(results, data, bin_info)
+                linux_st = mod._linux_patcher_stats(linux_off)
+            if is_macho and macos_st:
+                n_expected = macos_st["arm64_expected"]
+                found = macos_st["arm64_found"]
+            elif is_elf and linux_st:
+                n_expected = linux_st["expected"]
+                found = linux_st["found"]
+            else:
+                n_expected = n_patcher
 
             try:
-                xval = mod._cross_validate(results, adj, data, tiers_used=tiers_used)
+                xval = mod._cross_validate(results, adj, data, tiers_used=tiers_used, bin_fmt=fmt)
             except Exception:
                 xval = []
 
@@ -523,6 +538,26 @@ class OffsetFinderGUI:
                     else:
                         self._append_output_safe(
                             f"  Windows patcher: {patcher_count}/{n_patcher} ({n_patcher - patcher_count} missing)\n", "warn")
+                elif is_macho and macos_st:
+                    self._append_output_safe(
+                        f"  ARM64 patcher: {macos_st['arm64_found']}/{macos_st['arm64_expected']} "
+                        f"(apply_arm64_stereo_patches.py)\n",
+                        "success" if macos_st["arm64_found"] == macos_st["arm64_expected"] else "warn",
+                    )
+                    if macos_st.get("arm64_missing"):
+                        self._append_output_safe(
+                            f"  Missing ARM64 sites: {', '.join(macos_st['arm64_missing'])}\n", "warn")
+                    self._append_output_safe(
+                        f"  x86_64 stereo (info): {macos_st['x86_found']} sites\n", "info")
+                elif is_elf and linux_st:
+                    self._append_output_safe(
+                        f"  Linux patcher: {linux_st['found']}/{linux_st['expected']} "
+                        f"(discord_voice_patcher_linux.sh)\n",
+                        "success" if linux_st["found"] == linux_st["expected"] else "warn",
+                    )
+                    if linux_st.get("missing"):
+                        self._append_output_safe(
+                            f"  Missing: {', '.join(linux_st['missing'])}\n", "warn")
                 else:
                     if found == n_expected:
                         self._append_output_safe(
@@ -547,11 +582,12 @@ class OffsetFinderGUI:
             arm64_adj = 0
             arm64_tiers = {}
             arm64_info = bin_info.get("arm64_info")
-            if arm64_info and hasattr(mod, "discover_offsets_arm64"):
-                if verbose:
-                    self._append_output_safe(f"\n  {'=' * 55}\n", "header")
-                    self._append_output_safe(f"  ARM64 Offset Discovery (Apple Silicon)\n", "header")
-                    self._append_output_safe(f"  {'=' * 55}\n", "header")
+            if is_macho and macos_st:
+                arm64_found = macos_st["arm64_found"]
+            elif arm64_info and hasattr(mod, "discover_offsets_arm64") and verbose:
+                self._append_output_safe(f"\n  {'=' * 55}\n", "header")
+                self._append_output_safe("  ARM64 Offset Discovery (Apple Silicon)\n", "header")
+                self._append_output_safe(f"  {'=' * 55}\n", "header")
 
                 old_stdout = sys.stdout
                 arm64_capture = io.StringIO()
@@ -608,11 +644,19 @@ class OffsetFinderGUI:
                 self._append_output_safe("  Cross-validation: clean\n" if not xval else f"  Cross-validation: {len(xval)} issue(s)\n", "pass" if not xval else "warn")
 
             if not verbose and not is_pe:
-                if found == n_expected:
+                if is_elf and linux_st:
+                    tag = "success" if linux_st["found"] == linux_st["expected"] else "warn"
+                    self._append_output_safe(
+                        f"  Linux patcher: {linux_st['found']}/{linux_st['expected']}\n", tag)
+                elif is_macho and macos_st:
+                    tag = "success" if macos_st["arm64_found"] == macos_st["arm64_expected"] else "warn"
+                    self._append_output_safe(
+                        f"  ARM64 patcher: {macos_st['arm64_found']}/{macos_st['arm64_expected']}\n", tag)
+                elif found == n_expected:
                     self._append_output_safe(f"  [OK] ALL {found}/{n_expected} x86_64 OFFSETS FOUND\n", "success")
                 else:
                     self._append_output_safe(f"  x86_64: {found}/{n_expected} offsets\n", "warn" if found < n_expected else "info")
-                if arm64_found > 0:
+                if arm64_found > 0 and not is_macho:
                     if arm64_found == n_expected:
                         self._append_output_safe(f"  [OK] ALL {arm64_found}/{n_expected} arm64 OFFSETS FOUND\n", "success")
                     else:
@@ -662,7 +706,7 @@ class OffsetFinderGUI:
                     self._append_output_safe(ps_text + "\n", None)
 
             if fmt == "elf" and hasattr(mod, "format_linux_patcher_block"):
-                block = mod.format_linux_patcher_block(results, bin_info, path, file_size)
+                block = mod.format_linux_patcher_block(results, bin_info, path, file_size, data=data)
                 if block:
                     self.last_linux_block = _ascii_safe(block)
                     if verbose:
@@ -675,18 +719,17 @@ class OffsetFinderGUI:
                     self._append_output_safe("--- END COPY ---\n\n", None)
                 else:
                     self.last_linux_block = ""
-            elif fmt == "macho" and hasattr(mod, "format_macos_patcher_block"):
-                block = mod.format_macos_patcher_block(
-                    results, bin_info, path, file_size,
-                    arm64_results=arm64_results if arm64_results else None,
-                    arm64_info=arm64_info,
-                    arm64_adj=arm64_adj if arm64_results else None)
+            elif fmt == "macho" and hasattr(mod, "format_arm64_patches_python_block"):
+                block = mod.format_arm64_patches_python_block(stereo_patches, Path(path), file_size)
                 if block:
                     self.last_macos_block = _ascii_safe(block)
                     self.last_windows_block = ""
                     self.last_linux_block = ""
-                    self._append_output_safe("\n", None)
-                    self._append_output_safe("--- BEGIN COPY (macOS) ---\n", None)
+                    if verbose:
+                        self._append_output_safe("\n  " + "=" * 55 + "\n", "header")
+                        self._append_output_safe("  COPY BELOW -> apply_arm64_stereo_patches.py\n", "header")
+                        self._append_output_safe("  " + "=" * 55 + "\n\n", "header")
+                    self._append_output_safe("--- BEGIN COPY (macOS ARM64) ---\n", None)
                     self._append_output_safe(block + "\n", None)
                     self._append_output_safe("--- END COPY ---\n\n", None)
                 else:
@@ -711,9 +754,15 @@ class OffsetFinderGUI:
 
             if is_pe and patcher_names_u:
                 status_msg = f"Done - Windows patcher: {patcher_count}/{n_patcher} | x86_64: {found}/{n_expected}"
+            elif is_macho and macos_st:
+                status_msg = (
+                    f"Done - ARM64 patcher: {macos_st['arm64_found']}/{macos_st['arm64_expected']}"
+                )
+            elif is_elf and linux_st:
+                status_msg = f"Done - Linux patcher: {linux_st['found']}/{linux_st['expected']}"
             else:
                 status_msg = f"Done - x86_64: {found}/{n_expected}"
-            if arm64_found > 0:
+            if arm64_found > 0 and not is_macho:
                 status_msg += f" | arm64: {arm64_found}/{n_expected}"
             status_msg += f" | {datetime.now().strftime('%H:%M:%S')}"
             self._set_status_safe(status_msg)
@@ -752,7 +801,6 @@ class OffsetFinderGUI:
         self.root.destroy()
 
 
-# region Main
 
 def main():
     if tk is None:
@@ -803,7 +851,6 @@ def main():
     root.mainloop()
 
 
-# endregion Main
 
 
 if __name__ == "__main__":
