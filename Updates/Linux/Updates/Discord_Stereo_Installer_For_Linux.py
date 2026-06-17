@@ -12,7 +12,6 @@ import threading
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
 
-# region Paths
 
 def _script_dir():
     return os.path.dirname(os.path.abspath(__file__))
@@ -29,10 +28,8 @@ def patcher_script():
     """Path to discord_voice_patcher_linux.sh (same directory as this .py)."""
     return os.path.join(_script_dir(), "discord_voice_patcher_linux.sh")
 
-# endregion Paths
 
 
-# region Platform / debug
 
 IS_WINDOWS = sys.platform.startswith("win")
 DEBUG_MODE = (
@@ -40,7 +37,6 @@ DEBUG_MODE = (
     or "--debug" in sys.argv
 )
 
-# endregion Platform / debug
 
 
 def _which(cmd: str):
@@ -771,9 +767,6 @@ class DiscordVoiceFixerGUI:
             return
         self._run_bash(["--silent"], offer_restart=True)
 
-    def _verify(self):
-        self._run_bash(["--check"])
-
     def _restore(self):
         if not messagebox.askyesno("Restore", "Restore original voice modules from backup?"):
             return
@@ -781,6 +774,9 @@ class DiscordVoiceFixerGUI:
 
     def _check(self):
         self._run_bash(["--check"])
+
+    def _verify(self):
+        self._check()
 
     def _patcher_silent(self):
         if not messagebox.askyesno("Patch all", "Patch ALL clients silently?\nClose Discord first."):
@@ -800,7 +796,6 @@ class DiscordVoiceFixerGUI:
 
 
 def main():
-    _dpi_init_before_tk()
     _substitute_fonts()
     initial = None
     for a in sys.argv[1:]:

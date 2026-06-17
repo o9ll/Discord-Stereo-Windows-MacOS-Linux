@@ -4,7 +4,6 @@ set -euo pipefail
 
 SCRIPT_VERSION="2.2"
 
-# region Configuration
 DETECT_HOME="${HOME:-}"
 if [[ -n "${SUDO_USER:-}" ]] && [[ "$(id -u 2>/dev/null)" -eq 0 ]]; then
     _dh=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)
@@ -28,18 +27,6 @@ _resolve_github_token() {
     [[ -n "$t" ]] && printf '%s' "$t"
 }
 
-_github_auth_args() {
-    local tok scheme
-    tok=$(_resolve_github_token || true)
-    [[ -z "$tok" ]] && return 0
-    if [[ "$tok" == github_pat_* ]]; then
-        scheme="Bearer $tok"
-    else
-        scheme="token $tok"
-    fi
-    printf -- '-H\nAuthorization: %s\n' "$scheme"
-}
-
 APP_DATA_ROOT="$DETECT_HOME/.cache/DiscordVoiceFixer"
 BACKUP_ROOT="$APP_DATA_ROOT/backups"
 ORIGINAL_BACKUP_ROOT="$APP_DATA_ROOT/original_discord_modules"
@@ -48,16 +35,12 @@ SETTINGS_FILE="$APP_DATA_ROOT/settings.json"
 LOG_FILE="$APP_DATA_ROOT/debug.log"
 MAX_BACKUPS_PER_CLIENT=3
 MAX_LOG_SIZE_MB=5
-# endregion Configuration
 
-# region Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'; WHITE='\033[1;37m'; DIM='\033[0;90m'; BLUE='\033[0;34m'
 BOLD='\033[1m'; NC='\033[0m'; ORANGE='\033[0;33m'
-LIMEGREEN='\033[1;32m'; UNDERLINE='\033[4m'
-# endregion Colors
+LIMEGREEN='\033[1;32m'
 
-# region CLI
 SILENT_MODE=false
 CHECK_ONLY=false
 RESTORE_MODE=false
@@ -124,9 +107,7 @@ for arg in "$@"; do
 done
 
 ORIGINAL_ARGS=("$@")
-# endregion CLI
 
-# region Logging
 ensure_dir() { [[ -d "$1" ]] || mkdir -p "$1" 2>/dev/null || true; }
 
 rotate_log() {
@@ -162,7 +143,6 @@ status() {
         echo -e "${DIM}[$(date '+%H:%M:%S')]${NC} ${color}${1}${NC}"
     fi
 }
-# endregion Logging
 
 banner() {
     echo ""
@@ -172,17 +152,6 @@ banner() {
     echo -e "${DIM}Oracle | Shaun | Hallow | Ascend | Sikimzo | Cypher${NC}"
     echo -e "${CYAN}======================================================${NC}"
     echo ""
-}
-
-progress_bar() {
-    local pct="$1" label="${2:-Working...}" width=40
-    local filled=$(( pct * width / 100 ))
-    local empty=$(( width - filled ))
-    local bar=""
-    for (( i=0; i<filled; i++ )); do bar+="#"; done
-    for (( i=0; i<empty; i++ )); do bar+="-"; done
-    printf "\r  ${CYAN}[${bar}]${NC} ${WHITE}%3d%%${NC} ${DIM}%s${NC}  " "$pct" "$label"
-    if [[ "$pct" -ge 100 ]]; then echo ""; fi
 }
 
 check_dependencies() {
@@ -242,8 +211,6 @@ declare -a CLIENT_PATHS=()
 declare -a CLIENT_APP_PATHS=()
 declare -a CLIENT_VOICE_PATHS=()
 declare -a CLIENT_VERSIONS=()
-declare -a CLIENT_PROCESS_NAMES=()
-declare -a CLIENT_NODE_HASHES=()
 declare -a CLIENT_NODE_SIZES=()
 
 declare -a SEARCH_PATHS=(
@@ -351,8 +318,6 @@ find_discord_clients() {
     CLIENT_APP_PATHS=()
     CLIENT_VOICE_PATHS=()
     CLIENT_VERSIONS=()
-    CLIENT_PROCESS_NAMES=()
-    CLIENT_NODE_HASHES=()
     CLIENT_NODE_SIZES=()
 
     local found_voice_paths=()
@@ -390,8 +355,6 @@ find_discord_clients() {
             CLIENT_APP_PATHS+=("$app_path")
             CLIENT_VOICE_PATHS+=("$voice_path")
             CLIENT_VERSIONS+=("$version")
-            CLIENT_PROCESS_NAMES+=("$proc")
-            CLIENT_NODE_HASHES+=("$hash")
             CLIENT_NODE_SIZES+=("$size")
             found_voice_paths+=("$voice_path")
 
@@ -1344,7 +1307,6 @@ fix_client() {
     local idx="$1" download_path="$2"
     local name="${CLIENT_NAMES[$idx]}"
     local voice_path="${CLIENT_VOICE_PATHS[$idx]}"
-    local app_path="${CLIENT_APP_PATHS[$idx]}"
     local version="${CLIENT_VERSIONS[$idx]}"
 
     status "" blue
@@ -1876,17 +1838,15 @@ run_interactive() {
     done
 
     echo ""
-    local has_updates=false
     for i in "${!CLIENT_NAMES[@]}"; do
         local result
         result=$(check_discord_updated "${CLIENT_NAMES[$i]}" "${CLIENT_VERSIONS[$i]}")
         local rtype="${result%%|*}"
         case "$rtype" in
-            NEW)     status "  ${CLIENT_NAMES[$i]}: Never fixed" yellow; has_updates=true ;;
+            NEW)     status "  ${CLIENT_NAMES[$i]}: Never fixed" yellow ;;
             UPDATED)
                 IFS='|' read -r _ old new date <<< "$result"
                 status "  ${CLIENT_NAMES[$i]}: Updated v$old -> v$new" orange
-                has_updates=true
                 ;;
             OK)
                 IFS='|' read -r _ ver date <<< "$result"
@@ -2157,10 +2117,6 @@ run_gui() {
                 log_file "INFO" "Launching Python GUI (Discord_Stereo_Installer_For_Linux.py)"
                 exec python3 "$_script_dir/Discord_Stereo_Installer_For_Linux.py"
             fi
-            if [[ -f "$_script_dir/discord_voice_fixer_gui.py" ]]; then
-                log_file "INFO" "Launching Python GUI (discord_voice_fixer_gui.py)"
-                exec python3 "$_script_dir/discord_voice_fixer_gui.py"
-            fi
         fi
     fi
     echo ""
@@ -2202,5 +2158,8 @@ elif $RESTORE_MODE; then
     check_dependencies
     run_restore
 else
-    run_gui
+    sync_self_from_github || true
+    check_dependencies
+    ensure_app_dirs
+    run_interactive
 fi

@@ -16,7 +16,6 @@ if ([System.Environment]::OSVersion.Version.Major -ge 6) {
     } catch {}
 }
 
-# region Configuration
 
 $Theme = @{
     Background=[System.Drawing.Color]::FromArgb(32,34,37); ControlBg=[System.Drawing.Color]::FromArgb(47,49,54)
@@ -34,6 +33,11 @@ $Fonts = @{
     Console=New-Object System.Drawing.Font("Consolas",9)
     Small=New-Object System.Drawing.Font("Segoe UI",8.5)
 }
+
+$Script:AllDiscordProcessNames = @(
+    "Discord", "DiscordCanary", "DiscordPTB", "DiscordDevelopment",
+    "Lightcord", "BetterVencord", "Equicord", "Vencord", "Update"
+)
 
 $DiscordClients = [ordered]@{
     0 = @{Name="Discord - Stable         [Official]"; Path="$env:LOCALAPPDATA\Discord";            RoamingPath="$env:APPDATA\discord";            Processes=@("Discord","Update");            Exe="Discord.exe";            Shortcut="Discord"}
@@ -62,9 +66,7 @@ $SETTINGS_BACKUP_ROOT = "$APP_DATA_ROOT\settings_backups"
 $LOG_FILE = "$APP_DATA_ROOT\debug.log"
 $MAX_SETTINGS_BACKUPS = 5
 
-# endregion Configuration
 
-# region Utility Functions
 
 function EnsureDir($p) { if (-not (Test-Path $p)) { try { [void](New-Item $p -ItemType Directory -Force) } catch { } } }
 
@@ -137,9 +139,7 @@ function Get-HttpStatusCode {
     }
 }
 
-# endregion Utility Functions
 
-# region Backup Validation
 
 function Test-BackupHasContent {
     param([string]$BackupPath)
@@ -229,9 +229,7 @@ function Get-UpdatedDiscordClients {
     return $updatedClients
 }
 
-# endregion Backup Validation
 
-# region UI Helpers
 
 function New-StyledLabel {
     param([int]$X, [int]$Y, [int]$Width, [int]$Height, [string]$Text, [System.Drawing.Font]$Font=$Fonts.Normal,
@@ -279,9 +277,7 @@ function Update-Progress { param([System.Windows.Forms.ProgressBar]$ProgressBar,
     if ($null -ne $Form) { $Form.Refresh(); [System.Windows.Forms.Application]::DoEvents() }
 }
 
-# endregion UI Helpers
 
-# region Discord Process & Path
 
 function Stop-DiscordProcesses { param([string[]]$ProcessNames)
     $mainNames = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","Vencord","Equicord","BetterVencord")
@@ -472,9 +468,7 @@ function Get-InstalledClients {
     return $inst
 }
 
-# endregion Discord Process & Path
 
-# region Discord Reinstall
 
 $script:DiscordWasReinstalled = $false
 
@@ -534,8 +528,7 @@ function Repair-DiscordClient {
         }
         $script:DiscordWasReinstalled = $true
         Add-Status $StatusBox $Form "Step 1/4: Closing all Discord processes..." "Blue"
-        $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-        Stop-DiscordProcesses $allProcs | Out-Null
+        Stop-DiscordProcesses $Script:AllDiscordProcessNames | Out-Null
         Start-Sleep -Seconds 2
         Add-Status $StatusBox $Form "[OK] Discord processes terminated" "LimeGreen"
         Add-Status $StatusBox $Form "Step 2/4: Removing corrupted Discord files..." "Blue"
@@ -594,9 +587,7 @@ function Repair-DiscordClient {
     }
 }
 
-# endregion Discord Reinstall
 
-# region Download & EQ APO
 
 function Save-VoiceBackupFiles { param([string]$DestinationPath, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
     $maxRetries = 3; $retryDelay = 2
@@ -721,9 +712,7 @@ function Set-AllClientsEqApoSettings {
     return @{ Success = $successCount; Failed = $failCount; Total = $processedPaths.Count }
 }
 
-# endregion Download & EQ APO
 
-# region Backup Management
 
 function Initialize-BackupDirectory { EnsureDir $BACKUP_ROOT; EnsureDir $ORIGINAL_BACKUP_ROOT; EnsureDir (Split-Path $STATE_FILE -Parent) }
 function Get-StateData { if (Test-Path $STATE_FILE) { try { return Get-Content $STATE_FILE -Raw | ConvertFrom-Json } catch { return $null } }; return $null }
@@ -734,25 +723,6 @@ function Test-OriginalBackupExists { param([string]$ClientName)
     Initialize-BackupDirectory
     $scn = Get-SanitizedClientKey $ClientName
     return (Test-Path (Join-Path $ORIGINAL_BACKUP_ROOT $scn))
-}
-
-function Get-OriginalBackup { param([string]$ClientName)
-    Initialize-BackupDirectory
-    $scn = Get-SanitizedClientKey $ClientName
-    $originalPath = Join-Path $ORIGINAL_BACKUP_ROOT $scn
-    if (Test-Path $originalPath) {
-        $mp = Join-Path $originalPath "metadata.json"
-        if (Test-Path $mp) {
-            try {
-                $m = Get-Content $mp -Raw | ConvertFrom-Json
-                $backupDate = Get-DateTimeFromBackupString $m.BackupDate
-                if ($backupDate -eq [DateTime]::MinValue) { $backupDate = (Get-Item $originalPath).CreationTime }
-                return @{ Path=$originalPath; Name="Original Discord Modules"; ClientName=$m.ClientName; AppVersion=$m.AppVersion; BackupDate=$backupDate; IsOriginal=$true
-                          DisplayName="[ORIGINAL] $($m.ClientName) v$($m.AppVersion) - $($backupDate.ToString('MMM dd, yyyy HH:mm', [System.Globalization.CultureInfo]::InvariantCulture))" }
-            } catch { return $null }
-        }
-    }
-    return $null
 }
 
 function New-OriginalBackup {
@@ -895,9 +865,7 @@ function Remove-OldBackups {
     }
 }
 
-# endregion Backup Management
 
-# region Version Check & Update
 
 function Get-DiscordClientUpdateStatus { param([string]$ClientPath, [string]$ClientName)
     $st = Get-StateData; if (-not $st) { return $null }
@@ -981,9 +949,7 @@ function Get-NormalizedScriptText {
     return $t.Trim()
 }
 
-# endregion Version Check & Update
 
-# region Silent Mode
 
 if ($Silent -or $CheckOnly) {
     Write-Log "Starting in $(if($Silent){'Silent'}else{'CheckOnly'}) mode"
@@ -1015,8 +981,7 @@ if ($Silent -or $CheckOnly) {
             Write-Host "Attempting to repair: $($corrupt.Client.Name.Trim())"
             $reinstallSuccess = $false
             try {
-                $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-                Stop-DiscordProcesses $allProcs | Out-Null
+                Stop-DiscordProcesses $Script:AllDiscordProcessNames | Out-Null
                 Start-Sleep -Seconds 2
                 $appFolders = Get-ChildItem $corrupt.Path -Filter "app-*" -Directory -ErrorAction SilentlyContinue
                 foreach ($folder in $appFolders) { Remove-Item $folder.FullName -Recurse -Force -ErrorAction SilentlyContinue }
@@ -1147,8 +1112,7 @@ if ($Silent -or $CheckOnly) {
         if (-not (Save-VoiceBackupFiles $vbp $null $null)) {
             throw "Download Failed"
         }
-        $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-        $stopResult = Stop-DiscordProcesses $allProcs
+        $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
         if (-not $stopResult) {
             Write-Host "[!] Warning: Some Discord processes may still be running"
             Start-Sleep -Seconds 2
@@ -1214,9 +1178,7 @@ if ($Silent -or $CheckOnly) {
     }
 }
 
-# endregion Silent Mode
 
-# region GUI
 
 Write-Log "Starting in GUI mode"
 $settings = Get-Settings
@@ -1308,9 +1270,7 @@ $chkShortcut.Add_CheckedChanged({ $chkSilentStartup.Enabled = $chkShortcut.Check
 $btnSaveScript.Add_Click({ $statusBox.Clear(); $sp = Save-ScriptToAppData $statusBox $form; if ($sp) { Update-ScriptStatusLabel; [System.Windows.Forms.MessageBox]::Show($form,"Script saved to:`n$sp`n`nYou can now create a startup shortcut.","Script Saved","OK","Information") } })
 $btnOpenBackups.Add_Click({ Initialize-BackupDirectory; Start-Process "explorer.exe" $APP_DATA_ROOT })
 
-# endregion GUI
 
-# region Button Handlers
 
 $btnVerify.Add_Click({
     $btnVerify.Enabled = $false; $statusBox.Clear(); $progressBar.Value = 0
@@ -1384,8 +1344,7 @@ $btnFixEqApo.Add_Click({
             $closeResult = [System.Windows.Forms.MessageBox]::Show($form, "Discord is currently running. It needs to be closed to apply the EQ APO fix.`n`nClose Discord now?", "Discord Running", "YesNo", "Question")
             if ($closeResult -eq "Yes") {
                 Add-Status $statusBox $form "Closing Discord processes..." "Blue"
-                $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-                $stopResult = Stop-DiscordProcesses $allProcs
+                $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
                 if ($stopResult) { Add-Status $statusBox $form "[OK] Discord processes closed" "LimeGreen" }
                 else { Add-Status $statusBox $form "[!] Warning: Some processes may still be running, waiting..." "Orange"; Start-Sleep -Seconds 2 }
                 Start-Sleep -Seconds 1
@@ -1552,8 +1511,7 @@ $btnRollback.Add_Click({
         Add-Status $statusBox $form "Selected backup: $($sb.DisplayName)" "Cyan"
         Update-Progress $progressBar $form 50
         Add-Status $statusBox $form "Closing Discord processes..." "Blue"
-        $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-        $stopResult = Stop-DiscordProcesses $allProcs
+        $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
         if (-not $stopResult) { Add-Status $statusBox $form "[!] Warning: Some processes may still be running, waiting..." "Orange"; Start-Sleep -Seconds 2 }
         Start-Sleep -Seconds 1
         Update-Progress $progressBar $form 70
@@ -1671,12 +1629,11 @@ $btnStart.Add_Click({
         Update-Progress $progressBar $form 40
         Add-Status $statusBox $form "" "White"
         Add-Status $statusBox $form "Closing Discord processes..." "Blue"
-        $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-        $stopResult = Stop-DiscordProcesses $allProcs
+        $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
         if (-not $stopResult) {
             Add-Status $statusBox $form "[!] Warning: Some processes may still be running, retrying..." "Orange"
             Start-Sleep -Seconds 2
-            $stopResult = Stop-DiscordProcesses $allProcs
+            $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
             if (-not $stopResult) {
                 throw "Could not close all Discord processes. Please close Discord manually (check system tray) and try again."
             }
@@ -1807,12 +1764,11 @@ $btnFixAll.Add_Click({
         if (-not (Save-VoiceBackupFiles $vbp $statusBox $form)) { throw "Failed to download voice backup files" }
         Update-Progress $progressBar $form 20
         Add-Status $statusBox $form "" "White"; Add-Status $statusBox $form "Closing all Discord processes..." "Blue"
-        $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
-        $stopResult = Stop-DiscordProcesses $allProcs
+        $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
         if (-not $stopResult) {
             Add-Status $statusBox $form "[!] Warning: Some processes may still be running, retrying..." "Orange"
             Start-Sleep -Seconds 2
-            $stopResult = Stop-DiscordProcesses $allProcs
+            $stopResult = Stop-DiscordProcesses $Script:AllDiscordProcessNames
             if (-not $stopResult) {
                 throw "Could not close all Discord processes. Please close Discord manually (check system tray) and try again."
             }
@@ -1874,9 +1830,7 @@ $btnFixAll.Add_Click({
     }
 })
 
-# endregion Button Handlers
 
-# region Form Events & Startup
 
 $timer = New-Object System.Windows.Forms.Timer; $timer.Interval = 5000
 $timer.Add_Tick({ Update-DiscordRunningWarning }); $timer.Start()
@@ -1927,4 +1881,3 @@ $form.Add_FormClosed({
 
 [void]$form.ShowDialog()
 
-# endregion Form Events & Startup
