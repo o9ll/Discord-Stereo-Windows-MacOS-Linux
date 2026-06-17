@@ -51,9 +51,9 @@ $DiscordClients = [ordered]@{
     8 = @{Name="BetterVencord            [Mod]";      Path="$env:LOCALAPPDATA\BetterVencord";      RoamingPath="$env:APPDATA\discord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("BetterVencord","Discord","Update"); Exe="Discord.exe"; Shortcut="BetterVencord"}
 }
 
-$UPDATE_URL = "https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/DiscordVoiceFixer.ps1"
-$VOICE_BACKUP_API = "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FPatched%20Nodes%20%28for%20Installer%29%2FWindows?ref=main"
-$SETTINGS_JSON_URL = "https://raw.githubusercontent.com/ProdHallow/voice-backup/main/settings.json"
+$UPDATE_URL = "https://raw.githubusercontent.com/o9ll/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/DiscordVoiceFixer.ps1"
+$VOICE_BACKUP_API = "https://api.github.com/repos/o9ll/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FPatched%20Nodes%20%28for%20Installer%29%2FWindows?ref=main"
+$SETTINGS_JSON_URL = "https://raw.githubusercontent.com/o9ll/voice-backup/main/settings.json"
 $DISCORD_SETUP_URL = "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
 
 $APP_DATA_ROOT = "$env:APPDATA\StereoInstaller"

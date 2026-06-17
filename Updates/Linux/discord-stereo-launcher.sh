@@ -7,7 +7,7 @@ fi
 set -euo pipefail
 
 INSTALL_DIR_NAME="Linux Stereo Installer"
-REPO_RAW_LINUX_UPDATES="https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Linux/Updates"
+REPO_RAW_LINUX_UPDATES="https://raw.githubusercontent.com/o9ll/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Linux/Updates"
 
 FILES=(
     "Discord_Stereo_Installer_For_Linux.py|${REPO_RAW_LINUX_UPDATES}/Discord_Stereo_Installer_For_Linux.py"
