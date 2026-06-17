@@ -341,6 +341,7 @@ $Script:Config = @{
     MaxBackupsPerClient = 3
     MaxBackupAgeDays      = 45
     VoiceBackupAPI = "https://api.github.com/repos/o9ll/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FWindows"
+    LocalUnpatchedBundleRel = 'Updates\Nodes\Unpatched Nodes (For Patcher)\Windows'
     OffsetsMeta = $Script:OffsetsMeta
     Offsets     = $Script:Offsets
 }
@@ -761,8 +762,53 @@ function Update-ScriptPatch {
 
 
 
+function Get-LocalRepoBundleDir {
+    param([string]$RelativePath)
+    $dir = $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
+    for ($i = 0; $i -lt 6; $i++) {
+        $candidate = Join-Path $dir $RelativePath
+        if (Test-Path $candidate -PathType Container) { return $candidate }
+        $parent = Split-Path $dir -Parent
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $dir) { break }
+        $dir = $parent
+    }
+    return $null
+}
+
+function Copy-LocalRepoBundleTo {
+    param([string]$DestinationPath, [string]$RelativePath)
+    $src = Get-LocalRepoBundleDir -RelativePath $RelativePath
+    if (-not $src) { return $false }
+    EnsureDir $DestinationPath
+    $copied = 0
+    foreach ($f in @(Get-ChildItem -LiteralPath $src -File -ErrorAction SilentlyContinue)) {
+        if ($f.Name.StartsWith('.')) { continue }
+        try {
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $DestinationPath $f.Name) -Force
+            $copied++
+        } catch { }
+    }
+    if ($copied -eq 0) { return $false }
+    $nodePath = Join-Path $DestinationPath 'discord_voice.node'
+    if (-not (Test-Path $nodePath)) { return $false }
+    if ((Get-Item $nodePath).Length -lt 1024) { return $false }
+    return $true
+}
+
 function Save-VoiceBackupFiles {
     param([string]$DestinationPath)
+    $localSrc = Get-LocalRepoBundleDir -RelativePath $Script:Config.LocalUnpatchedBundleRel
+    if ($localSrc) {
+        if (Test-Path $DestinationPath) {
+            Write-Log "  Clearing existing backup folder..." -Level Info
+            [void](Clear-DirectoryContentsSafe -Path $DestinationPath)
+        }
+        if (Copy-LocalRepoBundleTo -DestinationPath $DestinationPath -RelativePath $Script:Config.LocalUnpatchedBundleRel) {
+            Write-Log "Using local unpatched bundle from repository: $localSrc" -Level Success
+            return $true
+        }
+    }
     Write-Log "Downloading voice backup files from GitHub..." -Level Info
     try {
         if (Test-Path $DestinationPath) {

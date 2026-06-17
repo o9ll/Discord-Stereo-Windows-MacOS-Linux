@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tk GUI for discord_voice_node_offset_finder_v5.py (copy blocks for Windows/Linux/macOS)."""
+"""Tk GUI for discord_voice_node_offset_finder_v5.py (Windows PE / Discord_voice_node_patcher.ps1)."""
 
 import os
 import sys
@@ -129,8 +129,6 @@ class OffsetFinderGUI:
         self.status_var = tk.StringVar(value="Ready")
         self.last_output = ""
         self.last_windows_block = ""
-        self.last_linux_block = ""
-        self.last_macos_block = ""
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -159,11 +157,11 @@ class OffsetFinderGUI:
         tk.Label(os_row, text="Target OS:", font=("Segoe UI", 9),
                  bg=BG_LIGHT, fg=FG, width=10, anchor="w").pack(side="left")
         self.os_combo = ttk.Combobox(os_row, textvariable=self.os_var,
-                                     values=["Auto-Detect", "Windows", "Linux", "macOS"],
+                                     values=["Auto-Detect", "Windows"],
                                      state="readonly", width=20)
         self.os_combo.pack(side="left", padx=(4, 0))
 
-        os_hint = tk.Label(os_row, text="(auto-detects PE/ELF/Mach-O)",
+        os_hint = tk.Label(os_row, text="(Windows PE discord_voice.node)",
                            font=("Segoe UI", 8), bg=BG_LIGHT, fg=FG_DIM)
         os_hint.pack(side="left", padx=(8, 0))
 
@@ -295,12 +293,6 @@ class OffsetFinderGUI:
                 magic = f.read(4)
             if magic[:2] == b"MZ":
                 self.os_var.set("Windows")
-            elif magic == b"\x7fELF":
-                self.os_var.set("Linux")
-            elif magic in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
-                           b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe",
-                           b"\xca\xfe\xba\xbe"):
-                self.os_var.set("macOS")
             else:
                 self.os_var.set("Auto-Detect")
         except Exception:
@@ -318,8 +310,6 @@ class OffsetFinderGUI:
         self.output.configure(state="disabled")
         self.last_output = ""
         self.last_windows_block = ""
-        self.last_linux_block = ""
-        self.last_macos_block = ""
 
     def _copy_output(self):
         text = self.last_output.strip()
@@ -331,7 +321,7 @@ class OffsetFinderGUI:
             self.status_var.set("Output copied to clipboard")
 
     def _copy_block(self):
-        block = (self.last_windows_block or self.last_linux_block or self.last_macos_block or "").strip()
+        block = (self.last_windows_block or "").strip()
         if not block:
             self.status_var.set("No patcher block to copy (run Find Offsets first)")
             return
@@ -443,6 +433,8 @@ class OffsetFinderGUI:
 
             bin_info = mod.detect_binary_format(data)
             fmt = bin_info.get("format", "unknown")
+            if fmt != "pe":
+                raise ValueError("Windows PE discord_voice.node required.")
             arch = bin_info.get("arch", "unknown")
             verbose = self.verbose.get()
 
@@ -805,12 +797,7 @@ class OffsetFinderGUI:
 def main():
     if tk is None:
         print("Offset Finder requires Tkinter.", file=sys.stderr)
-        if sys.platform.startswith("linux"):
-            print("  sudo apt install python3-tk", file=sys.stderr)
-        elif sys.platform == "darwin":
-            print("  Use python.org Python or: brew install python-tk", file=sys.stderr)
-        else:
-            print("  Reinstall Python with Tcl/Tk.", file=sys.stderr)
+        print("  Reinstall Python for Windows with Tcl/Tk included.", file=sys.stderr)
         sys.exit(1)
 
     try:

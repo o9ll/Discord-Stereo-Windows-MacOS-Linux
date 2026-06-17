@@ -65,10 +65,45 @@ $SAVED_SCRIPT_PATH = "$APP_DATA_ROOT\DiscordVoiceFixer.ps1"
 $SETTINGS_BACKUP_ROOT = "$APP_DATA_ROOT\settings_backups"
 $LOG_FILE = "$APP_DATA_ROOT\debug.log"
 $MAX_SETTINGS_BACKUPS = 5
+$LOCAL_PATCHED_BUNDLE_REL = 'Updates\Nodes\Patched Nodes (for Installer)\Windows'
 
 
 
 function EnsureDir($p) { if (-not (Test-Path $p)) { try { [void](New-Item $p -ItemType Directory -Force) } catch { } } }
+
+function Get-LocalRepoBundleDir {
+    param([string]$RelativePath)
+    $dir = $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
+    for ($i = 0; $i -lt 6; $i++) {
+        $candidate = Join-Path $dir $RelativePath
+        if (Test-Path $candidate -PathType Container) { return $candidate }
+        $parent = Split-Path $dir -Parent
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $dir) { break }
+        $dir = $parent
+    }
+    return $null
+}
+
+function Copy-LocalRepoBundleTo {
+    param([string]$DestinationPath, [string]$RelativePath)
+    $src = Get-LocalRepoBundleDir -RelativePath $RelativePath
+    if (-not $src) { return $false }
+    EnsureDir $DestinationPath
+    $copied = 0
+    foreach ($f in @(Get-ChildItem -LiteralPath $src -File -ErrorAction SilentlyContinue)) {
+        if ($f.Name.StartsWith('.')) { continue }
+        try {
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $DestinationPath $f.Name) -Force
+            $copied++
+        } catch { }
+    }
+    if ($copied -eq 0) { return $false }
+    $nodePath = Join-Path $DestinationPath 'discord_voice.node'
+    if (-not (Test-Path $nodePath)) { return $false }
+    if ((Get-Item $nodePath).Length -lt 1024) { return $false }
+    return $true
+}
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -590,6 +625,13 @@ function Repair-DiscordClient {
 
 
 function Save-VoiceBackupFiles { param([string]$DestinationPath, [System.Windows.Forms.RichTextBox]$StatusBox, [System.Windows.Forms.Form]$Form)
+    if (Copy-LocalRepoBundleTo -DestinationPath $DestinationPath -RelativePath $LOCAL_PATCHED_BUNDLE_REL) {
+        $localSrc = Get-LocalRepoBundleDir -RelativePath $LOCAL_PATCHED_BUNDLE_REL
+        Add-Status $StatusBox $Form "  Using local patched bundle from repository" "LimeGreen"
+        Add-Status $StatusBox $Form "  Source: $localSrc" "Cyan"
+        Write-Log "Using local patched bundle: $localSrc" "INFO"
+        return $true
+    }
     $maxRetries = 3; $retryDelay = 2
     $apiTimeoutSec = 60
     $fileTimeoutSec = 600
