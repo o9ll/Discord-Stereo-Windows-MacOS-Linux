@@ -141,7 +141,7 @@ class OffsetFinderGUI:
 
         tk.Label(title_frame, text="Offset Finder", font=("Segoe UI", 20, "bold"),
                  bg=BG, fg=FG_ACCENT).pack()
-        tk.Label(title_frame, text="Made by: Oracle | Shaun | Hallow | Ascend | Sikimzo | Cypher | Crue | Geeko",
+        tk.Label(title_frame, text="Made by: o9",
                  font=("Segoe UI", 8), bg=BG, fg=FG_DIM).pack()
         tk.Label(title_frame, text=f"v{VERSION}",
                  font=("Segoe UI", 8), bg=BG, fg=FG_DIM).pack()
