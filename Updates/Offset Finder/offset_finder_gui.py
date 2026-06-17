@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover
 
 sys.dont_write_bytecode = True
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 SCRIPT_DIR = Path(__file__).parent
 DEBUG_MODE = os.environ.get("OFFSET_FINDER_DEBUG", "").lower() in ("1", "true", "yes") or "--debug" in sys.argv
 
@@ -327,7 +327,14 @@ class OffsetFinderGUI:
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(_ascii_safe(block))
-        self.status_var.set("Block copied (paste into patcher)")
+        if self.last_macos_block and block == self.last_macos_block.strip():
+            self.status_var.set("macOS block copied — paste into apply_arm64_stereo_patches.py region")
+        elif self.last_linux_block and block == self.last_linux_block.strip():
+            self.status_var.set("Linux block copied — paste into discord_voice_patcher_linux.sh")
+        elif self.last_windows_block and block == self.last_windows_block.strip():
+            self.status_var.set("Windows block copied — paste into Discord_voice_node_patcher.ps1")
+        else:
+            self.status_var.set("Block copied (paste into patcher)")
 
     def _save_results(self):
         text = self.last_output.strip()
@@ -437,18 +444,21 @@ class OffsetFinderGUI:
                 raise ValueError("Windows PE discord_voice.node required.")
             arch = bin_info.get("arch", "unknown")
             verbose = self.verbose.get()
+            is_macho = fmt == "macho"
 
             if verbose:
                 self._append_output_safe(f"  Format: {fmt.upper()} | Arch: {arch}\n", "info")
-                if bin_info.get("has_symbols"):
+                if is_macho and arch == "arm64" and bin_info.get("has_symbols"):
                     nsyms = len(bin_info.get("func_symbols", {}))
-                    self._append_output_safe(f"  x86_64 Symbols: {nsyms} functions found\n", "info")
-                if bin_info.get("arm64_info"):
-                    a64 = bin_info["arm64_info"]
-                    n_a64 = len(a64.get("func_symbols", {}))
                     self._append_output_safe(
-                        f"  arm64 slice: {a64.get('fat_size', 0):,} bytes | "
-                        f"{n_a64} symbols\n", "info")
+                        f"  ARM64 slice: {bin_info.get('fat_size', 0):,} bytes | "
+                        f"{nsyms} symbols\n", "info")
+                elif is_macho and bin_info.get("intel_unsupported"):
+                    self._append_output_safe(
+                        "  WARNING: Intel-only Mach-O — ARM64 slice required for macOS patching\n", "warn")
+                elif bin_info.get("has_symbols") and not is_macho:
+                    nsyms = len(bin_info.get("func_symbols", {}))
+                    self._append_output_safe(f"  Symbols: {nsyms} functions found\n", "info")
                 self._append_output_safe("\n  Scanning for offsets...\n\n", "header")
 
             old_stdout = sys.stdout
@@ -539,8 +549,6 @@ class OffsetFinderGUI:
                     if macos_st.get("arm64_missing"):
                         self._append_output_safe(
                             f"  Missing ARM64 sites: {', '.join(macos_st['arm64_missing'])}\n", "warn")
-                    self._append_output_safe(
-                        f"  x86_64 stereo (info): {macos_st['x86_found']} sites\n", "info")
                 elif is_elf and linux_st:
                     self._append_output_safe(
                         f"  Linux patcher: {linux_st['found']}/{linux_st['expected']} "
@@ -568,42 +576,6 @@ class OffsetFinderGUI:
                         self._append_output_safe(f"  [XVAL] {w}\n", "warn")
                 else:
                     self._append_output_safe("  Cross-validation: clean\n", "pass")
-
-            arm64_found = 0
-            arm64_results = {}
-            arm64_adj = 0
-            arm64_tiers = {}
-            arm64_info = bin_info.get("arm64_info")
-            if is_macho and macos_st:
-                arm64_found = macos_st["arm64_found"]
-            elif arm64_info and hasattr(mod, "discover_offsets_arm64") and verbose:
-                self._append_output_safe(f"\n  {'=' * 55}\n", "header")
-                self._append_output_safe("  ARM64 Offset Discovery (Apple Silicon)\n", "header")
-                self._append_output_safe(f"  {'=' * 55}\n", "header")
-
-                old_stdout = sys.stdout
-                arm64_capture = io.StringIO()
-                sys.stdout = arm64_capture
-                try:
-                    arm64_results, _arm64_errors, arm64_adj, arm64_tiers = \
-                        mod.discover_offsets_arm64(data, arm64_info)
-                finally:
-                    sys.stdout = old_stdout
-
-                arm64_found = len(arm64_results)
-                if verbose:
-                    arm64_out = arm64_capture.getvalue()
-                    for line in arm64_out.splitlines():
-                        tag = None
-                        if "[SYM ]" in line or "[SCAN]" in line:
-                            tag = "pass"
-                        elif "[HINT]" in line or "missing" in line.lower():
-                            tag = "warn"
-                        elif "====" in line or "PHASE" in line:
-                            tag = "header"
-                        self._append_output_safe(line + "\n", tag)
-                    self._append_output_safe(f"\n  arm64: {arm64_found}/{n_expected} offsets found\n",
-                                             "success" if arm64_found == n_expected else "warn")
 
             file_size = len(data)
 
@@ -645,14 +617,9 @@ class OffsetFinderGUI:
                     self._append_output_safe(
                         f"  ARM64 patcher: {macos_st['arm64_found']}/{macos_st['arm64_expected']}\n", tag)
                 elif found == n_expected:
-                    self._append_output_safe(f"  [OK] ALL {found}/{n_expected} x86_64 OFFSETS FOUND\n", "success")
+                    self._append_output_safe(f"  [OK] ALL {found}/{n_expected} offsets found\n", "success")
                 else:
-                    self._append_output_safe(f"  x86_64: {found}/{n_expected} offsets\n", "warn" if found < n_expected else "info")
-                if arm64_found > 0 and not is_macho:
-                    if arm64_found == n_expected:
-                        self._append_output_safe(f"  [OK] ALL {arm64_found}/{n_expected} arm64 OFFSETS FOUND\n", "success")
-                    else:
-                        self._append_output_safe(f"  arm64: {arm64_found}/{n_expected} offsets\n", "warn")
+                    self._append_output_safe(f"  Found {found}/{n_expected} offsets\n", "warn" if found < n_expected else "info")
                 self._append_output_safe("  Cross-validation: clean\n" if not xval else f"  Cross-validation: {len(xval)} issue(s)\n", "pass" if not xval else "warn")
 
             if fmt == "pe" and hasattr(mod, "format_windows_patcher_block"):
@@ -677,25 +644,14 @@ class OffsetFinderGUI:
                         self._append_output_safe("  " + "-" * 55 + "\n", "header")
                         self._append_output_safe(mod.format_windows_debug_mode(results) + "\n\n", None)
 
-            if verbose and fmt == "elf":
-                self._append_output_safe("\n", None)
-                ps_text = None
-                old_stdout = sys.stdout
-                try:
-                    ps_capture = io.StringIO()
-                    sys.stdout = ps_capture
-                    ps_text = mod.format_powershell_config(
-                        results, bin_info=bin_info, file_path=path,
-                        file_size=len(data))
-                except Exception:
-                    pass
-                finally:
-                    sys.stdout = old_stdout
-                if ps_text:
-                    self._append_output_safe("  " + "=" * 55 + "\n", "header")
-                    self._append_output_safe("  PATCHER OFFSET TABLE\n", "header")
-                    self._append_output_safe("  " + "=" * 55 + "\n\n", "header")
-                    self._append_output_safe(ps_text + "\n", None)
+            if verbose and is_elf and linux_st and hasattr(mod, "LINUX_WINDOWS_DISCOVERY_NAMES"):
+                self._append_output_safe("\n  " + "=" * 55 + "\n", "header")
+                self._append_output_safe("  LINUX DISCOVERY KEYS (intermediate)\n", "header")
+                self._append_output_safe("  " + "=" * 55 + "\n", "header")
+                disc_names = sorted(mod.LINUX_WINDOWS_DISCOVERY_NAMES)
+                disc_found = sum(1 for n in disc_names if n in results)
+                self._append_output_safe(
+                    f"  {disc_found}/{len(disc_names)} Windows-style keys resolved for Linux mapping\n\n", "info")
 
             if fmt == "elf" and hasattr(mod, "format_linux_patcher_block"):
                 block = mod.format_linux_patcher_block(results, bin_info, path, file_size, data=data)
@@ -720,6 +676,9 @@ class OffsetFinderGUI:
                     if verbose:
                         self._append_output_safe("\n  " + "=" * 55 + "\n", "header")
                         self._append_output_safe("  COPY BELOW -> apply_arm64_stereo_patches.py\n", "header")
+                        self._append_output_safe(
+                            "  Replace the entire # region ARM64 Patches (PASTE HERE) ... "
+                            "# endregion ARM64 Patches section\n", "info")
                         self._append_output_safe("  " + "=" * 55 + "\n\n", "header")
                     self._append_output_safe("--- BEGIN COPY (macOS ARM64) ---\n", None)
                     self._append_output_safe(block + "\n", None)
@@ -732,11 +691,7 @@ class OffsetFinderGUI:
                     json_path = Path(path).with_suffix(".offsets.json")
                     try:
                         json_text = mod.format_json(
-                            results, bin_info, path, len(data), adj, tiers_used,
-                            arm64_results=arm64_results if arm64_results else None,
-                            arm64_info=arm64_info,
-                            arm64_adj=arm64_adj if arm64_results else None,
-                            arm64_tiers=arm64_tiers if arm64_results else None)
+                            results, bin_info, path, len(data), adj, tiers_used)
                     except TypeError:
                         json_text = mod.format_json(results, bin_info, path, len(data), adj, tiers_used)
                     json_path.write_text(json_text, encoding="ascii")
@@ -754,8 +709,6 @@ class OffsetFinderGUI:
                 status_msg = f"Done - Linux patcher: {linux_st['found']}/{linux_st['expected']}"
             else:
                 status_msg = f"Done - x86_64: {found}/{n_expected}"
-            if arm64_found > 0 and not is_macho:
-                status_msg += f" | arm64: {arm64_found}/{n_expected}"
             status_msg += f" | {datetime.now().strftime('%H:%M:%S')}"
             self._set_status_safe(status_msg)
 
