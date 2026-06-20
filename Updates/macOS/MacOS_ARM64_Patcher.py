@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shutil
 import hashlib
@@ -38,30 +39,85 @@ TARGET_BITRATE_BPS = 248000
 _BITRATE_LITERAL_ORIG = bytes.fromhex("00 7D 00 00")
 _BITRATE_LITERAL_PATCH = TARGET_BITRATE_BPS.to_bytes(4, "little")
 
+# MOVZ Wd, #0x7D00 (32000) — base opcode + mask over the Rd field (bits 4:0).
+_BITRATE_MOVZ_W_MASK = 0xFFFFFFE0   # MOVZ Wd, #32000 with any Rd
+_BITRATE_MOVZ_W_BASE = 0x528FA000   # MOVZ W?, #0x7D00 (32000)
+
 
 def _arm64_cbz(rt: int, target_insn: int, from_insn: int) -> int:
-    imm19 = target_insn - (from_insn + 1)
+    """Encode CBZ (32-bit). ARM A64 defines target = PC_branch + (imm19 << 2),
+    so imm19 = target_idx - branch_idx (NOT target - (from + 1))."""
+    imm19 = target_insn - from_insn
+    if not (-(1 << 18) <= imm19 < (1 << 18)):
+        raise ValueError(f"CBZ imm19 out of range: {imm19}")
     return 0x34000000 | ((imm19 & 0x7FFFF) << 5) | (rt & 0x1F)
 
 
 def _arm64_b_ne(target_insn: int, from_insn: int) -> int:
-    imm19 = target_insn - (from_insn + 1)
+    """Encode B.NE with imm19 = target - from."""
+    imm19 = target_insn - from_insn
+    if not (-(1 << 18) <= imm19 < (1 << 18)):
+        raise ValueError(f"B.NE imm19 out of range: {imm19}")
     return 0x54000001 | ((imm19 & 0x7FFFF) << 5)
 
 
+def _arm64_ldr_si_post(rt: int, rn: int, imm9: int) -> int:
+    """LDR St, [Xn], #imm9 (post-index, 32-bit SIMD)."""
+    return 0xBC400000 | ((imm9 & 0x1FF) << 12) | (1 << 10) | ((rn & 0x1F) << 5) | (rt & 0x1F)
+
+
+def _arm64_str_si_post(rt: int, rn: int, imm9: int) -> int:
+    """STR St, [Xn], #imm9 (post-index, 32-bit SIMD)."""
+    return 0xBC000000 | ((imm9 & 0x1FF) << 12) | (1 << 10) | ((rn & 0x1F) << 5) | (rt & 0x1F)
+
+
+def _arm64_subs_imm32(rd: int, rn: int, imm12: int) -> int:
+    """SUBS Wd, Wn, #imm12 (32-bit, no shift)."""
+    return 0x71000000 | ((imm12 & 0xFFF) << 10) | ((rn & 0x1F) << 5) | (rd & 0x1F)
+
+
 def _arm64_passthrough_shellcode(len_reg: int, ch_reg: int, out_reg: int) -> bytes:
-    """Copy len*channels float samples in->out; filterless passthrough for hp_cutoff/dc_reject."""
-    loop_insn = 3
-    ret_insn = 7
+    """Copy len*channels float samples in->out; filterless passthrough for hp_cutoff/dc_reject.
+
+    Layout (8 instructions, 32 bytes):
+        0: CBZ     W<len>, RET          ; early-exit if len == 0
+        1: MUL     W11, W<len>, W<ch>   ; total = len * channels
+        2: CBZ     W11, RET             ; early-exit if total == 0
+        3: LDR     S4, [X0], #4         ; load input float, post-increment X0
+        4: STR     S4, [X<out>], #4     ; store to output, post-increment X<out>
+        5: SUBS    W11, W11, #1         ; --total, set flags
+        6: B.NE    LOOP (insn 3)        ; loop while total != 0
+        7: RET
+
+    Used to generate the patch bytes for hp_cutoff and dc_reject above. Re-run if registers change.
+
+    BUGFIX: the MUL encoding previously emitted `0x1B000000 | (Rm<<16) | (Rn<<5) | Rd`,
+    which leaves the Ra field (bits 14-10) at 0 -> Ra = W0. Capstone therefore
+    disassembled the result as `madd W11, W<len>, W<ch>, W0` (= W11 = W0 +
+    W<len>*W<ch>) instead of `mul`. Because W0 holds the lower 32 bits of the
+    input pointer (a large value), the loop counter became billions and the
+    LDR/STR loop ran off the end of both buffers, crashing Discord the moment
+    hp_cutoff or dc_reject was called. Setting Ra = 31 (WZR) yields the
+    intended `mul` encoding.
+    """
+    loop_insn, ret_insn = 3, 7
     ins = [0] * 8
     ins[0] = _arm64_cbz(len_reg, ret_insn, 0)
-    ins[1] = 0x1B000000 | ((ch_reg & 0x1F) << 16) | ((len_reg & 0x1F) << 5) | 11
+    # MUL W11, W<len>, W<ch> == MADD W11, W<len>, W<ch>, WZR (Ra = 31 = 0x1F).
+    _RA_WZR = 31
+    ins[1] = (
+        0x1B000000
+        | ((ch_reg & 0x1F) << 16)
+        | (_RA_WZR << 10)
+        | ((len_reg & 0x1F) << 5)
+        | 11
+    )
     ins[2] = _arm64_cbz(11, ret_insn, 2)
-    ins[3] = 0xBD400004
-    ins[4] = 0xBC400000 | ((out_reg & 0x1F) << 5)
-    ins[5] = 0x71002D6B
+    ins[3] = _arm64_ldr_si_post(rt=4, rn=0, imm9=4)
+    ins[4] = _arm64_str_si_post(rt=4, rn=out_reg, imm9=4)
+    ins[5] = _arm64_subs_imm32(rd=11, rn=11, imm12=1)
     ins[6] = _arm64_b_ne(loop_insn, 6)
-    ins[7] = 0xD65F03C0
+    ins[7] = 0xD65F03C0  # RET
     return struct.pack("<8I", *ins)
 
 
@@ -70,6 +126,11 @@ PATCHES_META = {
     "finder_version": "discord_voice_node_offset_finder_v5.py v5.11.0",
     "discord_app_version": "unspecified",
     "file_size": 51474192,
+    # Verified SHA-256 of the stock discord_voice.node (matches the binary
+    # published at Updates/Nodes/Unpatched Nodes (For Patcher)/macOS/).
+    # Also retains the legacy MD5 under "md5" so older branches that still
+    # read md5_file (= sha256_file alias) keep working.
+    "sha256": "d1d0643a3c33561fa2b2a3486fc8b2c45db57777b21a6b22cc383d6e98127f8d",
     "md5": "c3efcdd6b6b11698eca006a9d93d7de5",
     "arm64_slice_offset": 0x1A80000,
     "arm64_slice_size": 23686928,
@@ -113,20 +174,35 @@ ARM64_PATCHES: List[dict] = [
 
     # --- Force CELT (opus_encoder_init) ---
     {"name": "CELT_Force", "fat_offset": 0x24FD4C0, "orig": "18 FC FF FF FF FF FF FF", "patch": "EA 03 00 00 00 00 00 00"},
-    {"name": "CELT_DefaultMode", "fat_offset": 0x1DD9AB0, "orig": "28 7D 80 52", "patch": "40 7D 80 52"},
+    # BUGFIX: previous patch bytes were `40 7D 80 52` which decode as
+    # `mov w0, #0x3ea` — Rd silently changed from w8 to w0, so the next
+    # instruction `str w8, [x19, #0x3794]` stored the OLD w8 value (1001 =
+    # OPUS_APPLICATION_VOIP) instead of the intended 1002 = AUDIO. The
+    # correct encoding for `mov w8, #0x3ea` (preserving Rd=8) is
+    # 0x52807D48 -> LE bytes `48 7D 80 52`.
+    {"name": "CELT_DefaultMode", "fat_offset": 0x1DD9AB0, "orig": "28 7D 80 52", "patch": "48 7D 80 52"},
 
     # --- Filterless: hp_cutoff / dc_reject passthrough shellcode ---
+    # BUGFIX: the second instruction of each shellcode was encoded as
+    # `MADD W11, W<len>, W<ch>, W0` (= W11 = W0 + W<len>*W<ch>) instead of
+    # `MUL W11, W<len>, W<ch>` (= W11 = W<len>*W<ch>). Because W0 holds the
+    # lower 32 bits of the input pointer (a large value like 0x6F000000),
+    # the loop counter W11 became ~1.8 billion, causing the LDR/STR loop to
+    # overrun both buffers and crash Discord. Fixed by setting Ra=31 (WZR)
+    # in the MADD encoding so capstone disassembles it as `mul`:
+    #   hp_cutoff: 8B 00 05 1B  ->  8B 7C 05 1B
+    #   dc_reject: 6B 00 04 1B  ->  6B 7C 04 1B
     {
         "name": "hp_cutoff_Callback_InjectShellcode",
         "fat_offset": 0x1DDD730,
         "orig": "9F 04 00 71 6B 09 00 54 09 00 80 D2 28 3C 00 13 EA 34 81 52 08 7D 0A 1B 6A BA 89 52 4A 0C A2 72",
-        "patch": "C4 00 00 34 8B 00 05 1B 8B 00 00 34 04 00 40 BD 40 00 40 BC 6B 2D 00 71 81 FF FF 54 C0 03 5F D6",
+        "patch": "E4 00 00 34 8B 7C 05 1B AB 00 00 34 04 44 40 BC 44 44 00 BC 6B 05 00 71 A1 FF FF 54 C0 03 5F D6",
     },
     {
         "name": "dc_reject_Callback_InjectShellcode",
         "fat_offset": 0x1DDD864,
         "orig": "A0 00 22 1E 88 66 86 52 E8 32 A8 72 01 01 27 1E 21 18 20 1E 00 10 2E 1E 02 38 21 1E 40 00 40 BD",
-        "patch": "C3 00 00 34 6B 00 04 1B 8B 00 00 34 04 00 40 BD 20 00 40 BC 6B 2D 00 71 81 FF FF 54 C0 03 5F D6",
+        "patch": "E3 00 00 34 6B 7C 04 1B AB 00 00 34 04 44 40 BC 24 44 00 BC 6B 05 00 71 A1 FF FF 54 C0 03 5F D6",
     },
 ]
 # endregion ARM64 Patches
@@ -137,12 +213,17 @@ ARM64_STEREO_SPEC_NAMES = [p["name"] for p in ARM64_PATCHES]
 def _hex_bytes(s: str) -> bytes:
     return bytes(int(b, 16) for b in s.split() if b)
 
-def md5_file(path: Path) -> str:
-    h = hashlib.md5()
+def sha256_file(path: Path) -> str:
+    """SHA-256 of a file (streams in 1 MB chunks)."""
+    h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+# Backward-compat alias — older callers and tests may still reference md5_file.
+# NOTE: this now returns a SHA-256 digest, not an MD5 digest.
+md5_file = sha256_file
 
 
 def _arm64_is_movz_w(raw: int, imm16: int) -> bool:
@@ -150,15 +231,18 @@ def _arm64_is_movz_w(raw: int, imm16: int) -> bool:
 
 
 def _arm64_movz_32000_to_248k_bytes(rd: int) -> bytes:
-    import struct
-
     movz = 0x52800000 | (rd & 0x1F) | (0xC850 << 5)
     movk = 0x72800000 | (rd & 0x1F) | (3 << 5) | (1 << 21)
     return struct.pack("<II", movz, movk)
 
 
 def find_macos_stereo_patches(data: bytes) -> List[dict]:
-    """Resolve static ARM64 patch sites against the fat binary."""
+    """Resolve static ARM64 patch sites against the fat binary.
+
+    Emits an entry for every spec whose region is within the file. Each entry
+    carries one of three states: original bytes (default), `already_patched=True`,
+    or `mismatch=True` (bytes match neither `orig` nor `patch`).
+    """
     if len(data) < 8:
         return []
     out: List[dict] = []
@@ -181,47 +265,79 @@ def find_macos_stereo_patches(data: bytes) -> List[dict]:
         elif data[fo : fo + len(patch_b)] == patch_b:
             entry["already_patched"] = True
             out.append(entry)
+        else:
+            # M2: surface the mismatch explicitly instead of silently dropping.
+            entry["mismatch"] = True
+            out.append(entry)
     return out
 
 
 def missing_arm64_stereo_patch_names(data: bytes) -> List[str]:
-    found = {p["name"] for p in find_macos_stereo_patches(data)}
+    found = {p["name"] for p in find_macos_stereo_patches(data) if not p.get("mismatch")}
     return [n for n in ARM64_STEREO_SPEC_NAMES if n not in found]
 
 
-def _scan_arm64_bitrate_literals(data: bytearray, touched: set) -> Tuple[int, List[str]]:
+def _scan_arm64_bitrate_literals(
+    data: bytearray, touched_ranges: List[Tuple[int, int]]
+) -> Tuple[int, List[str]]:
+    """Replace the 4-byte literal 32000 (LE) with 248000 (LE) ONLY when preceded
+    by a MOVZ Wd, #0x7D00 instruction (the actual bitrate-load idiom).
+
+    Constrained to instruction-aligned sites within the ARM64 slice. Skips any
+    range already touched by a static patch.
+    """
     fo = PATCHES_META["arm64_slice_offset"]
-    end = min(fo + PATCHES_META["arm64_slice_size"], len(data) - 3)
+    end = min(fo + PATCHES_META["arm64_slice_size"], len(data) - 8)
     applied = 0
     names: List[str] = []
-    for i in range(fo, end):
-        if i in touched:
+
+    def _overlaps(start: int, length: int) -> bool:
+        return any(not (start + length <= s or start >= s + l) for s, l in touched_ranges)
+
+    # Align to 4 bytes (ARM64 instruction alignment).
+    i = fo
+    if i % 4:
+        i += 4 - (i % 4)
+    while i < end:
+        if _overlaps(i, 8):
+            i += 4
             continue
-        if bytes(data[i : i + 4]) != _BITRATE_LITERAL_ORIG:
-            continue
-        data[i : i + 4] = _BITRATE_LITERAL_PATCH
-        touched.add(i)
-        applied += 1
-        names.append(f"bitrate_literal@0x{i:X}")
+        raw = struct.unpack_from("<I", data, i)[0]
+        if (raw & _BITRATE_MOVZ_W_MASK) == _BITRATE_MOVZ_W_BASE:
+            # Check that the next 4 bytes are the literal 32000 (LE).
+            if data[i + 4 : i + 8] == _BITRATE_LITERAL_ORIG:
+                data[i + 4 : i + 8] = _BITRATE_LITERAL_PATCH
+                touched_ranges.append((i + 4, 4))
+                applied += 1
+                names.append(f"bitrate_literal@0x{i + 4:X}")
+        i += 4
     return applied, names
 
 
-def _scan_arm64_movz_32000(data: bytearray, touched: set) -> Tuple[int, List[str]]:
-    import struct
-
+def _scan_arm64_movz_32000(
+    data: bytearray, touched_ranges: List[Tuple[int, int]]
+) -> Tuple[int, List[str]]:
+    """Rewrite MOVZ Wd, #32000 + the trailing 4-byte literal into the 248 kbps
+    pair. Writes 8 bytes per site — guarded by touched_ranges overlap check so
+    we never re-patch inside a static patch site.
+    """
     fo = PATCHES_META["arm64_slice_offset"]
     end = min(fo + PATCHES_META["arm64_slice_size"], len(data) - 7)
     applied = 0
     names: List[str] = []
+
+    def _overlaps(start: int, length: int) -> bool:
+        return any(not (start + length <= s or start >= s + l) for s, l in touched_ranges)
+
     for i in range(fo, end, 4):
-        if i in touched:
+        if _overlaps(i, 8):
             continue
         raw = struct.unpack_from("<I", data, i)[0]
         if not _arm64_is_movz_w(raw, 32000):
             continue
         patch = _arm64_movz_32000_to_248k_bytes(raw & 0x1F)
         data[i : i + len(patch)] = patch
-        touched.add(i)
+        touched_ranges.append((i, len(patch)))
         applied += 1
         names.append(f"movz_32000@0x{i:X}")
     return applied, names
@@ -260,7 +376,10 @@ def apply_macos_stereo_patches(data, arm64_only: bool = False) -> Tuple[int, int
             skipped += 1
             names.append(p["name"] + " (already)")
         else:
+            # M2: surface mismatches explicitly instead of silently skipping.
+            # Callers can count "(mismatch)" suffixes in `names` for telemetry.
             skipped += 1
+            names.append(p["name"] + " (mismatch)")
     return applied, skipped, names
 
 
@@ -268,9 +387,18 @@ def apply_all_arm64_patches(data, *, arm64_only: bool = True) -> Tuple[int, int,
     if not isinstance(data, bytearray):
         data = bytearray(data)
     a1, s1, n1 = apply_macos_stereo_patches(data, arm64_only=arm64_only)
-    touched = {p["fat_offset"] for p in find_macos_stereo_patches(data)}
-    a2, n2 = _scan_arm64_bitrate_literals(data, touched)
-    a3, n3 = _scan_arm64_movz_32000(data, touched)
+    # Track touched RANGES so the dynamic scans can't trample a static patch
+    # site (the previous flat `set[int]` of start offsets could not protect
+    # 4-byte regions inside an 8-byte MOVZ+literal site).
+    touched_ranges: List[Tuple[int, int]] = []
+    for p in find_macos_stereo_patches(data):
+        if p.get("mismatch"):
+            continue
+        fo = p["fat_offset"]
+        patch_len = len(_hex_bytes(p["patch"]))
+        touched_ranges.append((fo, patch_len))
+    a2, n2 = _scan_arm64_bitrate_literals(data, touched_ranges)
+    a3, n3 = _scan_arm64_movz_32000(data, touched_ranges)
     return a1 + a2 + a3, s1, n1 + n2 + n3
 
 
@@ -292,7 +420,20 @@ COLORS = {
 }
 
 CACHE_DIR = Path.home() / "Library" / "Caches" / "DiscordVoicePatcher"
-BACKUP_DIR = CACHE_DIR / "Backups"
+
+
+def app_data_dir() -> Path:
+    return Path.home() / "Library" / "Application Support" / "DiscordArm64StereoPatcher"
+
+
+# M5: canonical backup root. Previously this was `CACHE_DIR / "Backups"`, which
+# disagreed with `backup_path_for()` (which used `app_data_dir() / "backups"`)
+# — the GUI's "Open in Finder" pointed at a folder the patcher never wrote to.
+# Now both point at the same canonical location.
+BACKUP_DIR = app_data_dir() / "backups"
+# Legacy backup root from older patcher versions — still scanned by list_backups
+# so users can restore backups made before this consolidation.
+LEGACY_BACKUP_DIR = CACHE_DIR / "Backups"
 
 
 
@@ -697,10 +838,6 @@ class DarkDropdown(tk.Frame):
 
 
 
-def app_data_dir() -> Path:
-    return Path.home() / "Library" / "Application Support" / "DiscordArm64StereoPatcher"
-
-
 def log_path() -> Path:
     return app_data_dir() / "arm64_stereo_patcher.log"
 
@@ -826,21 +963,447 @@ def relaunch_discord_for_node(node: Path, log: LogSink) -> None:
 
 
 def discover_discord_installations() -> List[Tuple[str, str]]:
-    """Match DiscordStereoPatcher find_discord()."""
+    """Discover installed Discord voice.node files.
+
+    M8: deterministic — for each client we now sort every `discord_voice.node`
+    match by mtime descending and pick the newest (rather than relying on the
+    OS-dependent order from `rglob(...).next()`). Also includes Discord
+    Development, which the previous list missed.
+    """
     search = [
         ("Discord Stable", Path.home() / "Library/Application Support/discord"),
         ("Discord Canary", Path.home() / "Library/Application Support/discordcanary"),
         ("Discord PTB", Path.home() / "Library/Application Support/discordptb"),
+        ("Discord Development", Path.home() / "Library/Application Support/discorddevelopment"),
     ]
     found: List[Tuple[str, str]] = []
     for name, base in search:
         if not base.is_dir():
             continue
-        for node in base.rglob("discord_voice.node"):
-            if node.is_file():
-                found.append((name, str(node)))
-                break
+        matches = [p for p in base.rglob("discord_voice.node") if p.is_file()]
+        if not matches:
+            continue
+        # Sort newest first by mtime so an upgrade leaves the old copy behind.
+        matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        newest = matches[0]
+        found.append((name, str(newest)))
     return found
+
+
+# ----------------------------------------------------------------------------
+# Voice module download / replacement workflow
+# ----------------------------------------------------------------------------
+#
+# BUGFIX (download workflow): the previous version of this patcher had NO
+# mechanism for downloading the unpatched discord_voice.node + sibling module
+# files (index.js, libmediapipe.dylib, manifest.json, package.json,
+# selfie_segmentation*.tflite) from the GitHub release folder. When the
+# locally installed Discord build did not match PATCHES_META (size + SHA-256),
+# `verify_node_identity` would fail and patching would abort with no fallback.
+#
+# The Windows patcher (Discord_voice_node_patcher.ps1) implements this via
+# `Save-VoiceBackupFiles` + `Get-PreparedVoiceBackupPath` +
+# `Invoke-PatchClients`. The functions below mirror that workflow for macOS:
+#
+#   1. `download_voice_backup_files(dest_dir, log)` — fetch the file list
+#      from the GitHub contents API and download every file into `dest_dir`.
+#   2. `prepare_voice_backup(log)` — wraps (1), verifies the downloaded
+#      discord_voice.node matches PATCHES_META (size + SHA-256), and returns
+#      the directory.
+#   3. `get_voice_module_paths(node)` — resolves the discord_voice module
+#      folder for a given discord_voice.node path (handles both flat and
+#      nested `discord_voice-x/discord_voice/` layouts).
+#   4. `install_voice_module(node, backup_dir, log)` — clears the existing
+#      module folder (after backing it up) and copies the downloaded files
+#      in, so the locally installed Discord build is downgraded to the
+#      version the patcher's offsets target.
+#
+# `run_cli` and `PatcherApp._start_patch` both call `prepare_voice_backup`
+# when `verify_node_identity` reports a size/hash mismatch.
+
+# GitHub contents-API URL for the macOS unpatched-voice folder. URL-encoded
+# "Updates/Nodes/Unpatched Nodes (For Patcher)/macOS".
+VOICE_BACKUP_API_URL = (
+    "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux"
+    "/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FmacOS"
+)
+VOICE_BACKUP_RAW_BASE = (
+    "https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux"
+    "/main/Updates/Nodes/Unpatched%20Nodes%20%28For%20Patcher%29/macOS"
+)
+
+# Files we expect to find in the macOS unpatched-voice folder. We enforce this
+# list so a partial / corrupt GitHub response doesn't leave the user with a
+# half-populated module folder (which would crash Discord on launch).
+VOICE_MODULE_REQUIRED_FILES = (
+    "discord_voice.node",
+    "index.js",
+    "libmediapipe.dylib",
+    "manifest.json",
+    "package.json",
+    "selfie_segmentation.tflite",
+    "selfie_segmentation_landscape.tflite",
+)
+
+
+def _voice_backup_cache_dir() -> Path:
+    """Where to store downloaded voice-module files across runs."""
+    return CACHE_DIR / "VoiceBackup_macOS"
+
+
+def _http_get_json(url: str, *, timeout: float = 30.0) -> list:
+    """GET a GitHub contents-API URL and return the parsed JSON list."""
+    import json as _json
+    import urllib.request
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "DiscordVoicePatcher",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        body = r.read()
+    data = _json.loads(body.decode("utf-8"))
+    if not isinstance(data, list):
+        raise RuntimeError(
+            f"GitHub API returned {type(data).__name__}, expected a list (rate limit?)"
+        )
+    return data
+
+
+def _list_voice_backup_files_via_api() -> list:
+    """List the macOS unpatched-voice folder via the GitHub contents API.
+
+    Returns a list of dicts with at least: name, type, size, download_url.
+    Raises on failure.
+    """
+    return _http_get_json(VOICE_BACKUP_API_URL)
+
+
+def _list_voice_backup_files_via_raw() -> list:
+    """Fallback: list the macOS unpatched-voice folder by fetching manifest.json
+    directly from raw.githubusercontent.com (bypasses the contents API and its
+    rate limit). Returns a list of dicts shaped like the API response.
+
+    manifest.json contains a `files` array listing every expected file name.
+    We HEAD each file via raw URL to get its size; if HEAD fails we leave
+    size at 0 (download will still work, we just lose the size info).
+    """
+    import urllib.request
+    manifest_url = f"{VOICE_BACKUP_RAW_BASE}/manifest.json"
+    req = urllib.request.Request(
+        manifest_url, headers={"User-Agent": "DiscordVoicePatcher"}
+    )
+    with urllib.request.urlopen(req, timeout=30.0) as r:
+        body = r.read().decode("utf-8")
+    import json as _json
+    manifest = _json.loads(body)
+    file_names = manifest.get("files") or list(VOICE_MODULE_REQUIRED_FILES)
+    out = []
+    for name in file_names:
+        url = f"{VOICE_BACKUP_RAW_BASE}/{name}"
+        size = 0
+        # Best-effort HEAD to get Content-Length; harmless if it fails.
+        try:
+            head_req = urllib.request.Request(
+                url, method="HEAD", headers={"User-Agent": "DiscordVoicePatcher"}
+            )
+            with urllib.request.urlopen(head_req, timeout=15.0) as hr:
+                cl = hr.headers.get("Content-Length")
+                if cl:
+                    size = int(cl)
+        except Exception:
+            pass
+        out.append({
+            "name": name,
+            "type": "file",
+            "size": size,
+            "download_url": url,
+        })
+    return out
+
+
+def _http_download_file(url: str, dest: Path, *, timeout: float = 120.0) -> None:
+    """Stream a binary file from `url` to `dest` (atomic via .tmp rename)."""
+    import urllib.request
+    tmp = dest.with_name(dest.name + ".part")
+    req = urllib.request.Request(url, headers={"User-Agent": "DiscordVoicePatcher"})
+    with urllib.request.urlopen(req, timeout=timeout) as r, tmp.open("wb") as f:
+        while True:
+            chunk = r.read(1024 * 1024)
+            if not chunk:
+                break
+            f.write(chunk)
+    os.replace(tmp, dest)
+
+
+def download_voice_backup_files(dest_dir: Path, log: Optional[LogSink] = None) -> bool:
+    """Download every file from the macOS unpatched-voice GitHub folder.
+
+    Mirrors `Save-VoiceBackupFiles` in Discord_voice_node_patcher.ps1:
+      1. Clears `dest_dir` (if it exists) so stale files don't linger.
+      2. Lists the folder via the GitHub contents API.
+      3. Downloads each `file` entry into `dest_dir`.
+      4. Verifies that every file in VOICE_MODULE_REQUIRED_FILES is present
+         and non-empty before returning True.
+    """
+    def _info(m: str) -> None:
+        if log is not None:
+            log.info(m)
+    def _ok(m: str) -> None:
+        if log is not None:
+            log.ok(m)
+    def _warn(m: str) -> None:
+        if log is not None:
+            log.warn(m)
+    def _fail(m: str) -> None:
+        if log is not None:
+            log.fail(m)
+
+    if dest_dir.exists():
+        _info(f"Clearing existing backup folder: {_short_home_path(dest_dir)}")
+        shutil.rmtree(dest_dir, ignore_errors=True)
+    safe_mkdir(dest_dir)
+
+    _info("Fetching file list from GitHub API...")
+    entries: list = []
+    try:
+        entries = _list_voice_backup_files_via_api()
+    except Exception as e:
+        _warn(f"GitHub contents API failed ({human_exc(e)}); falling back to raw URLs")
+        try:
+            entries = _list_voice_backup_files_via_raw()
+        except Exception as e2:
+            _fail(f"Raw fallback also failed: {human_exc(e2)}")
+            return False
+    if not entries:
+        _fail("GitHub repository response is empty.")
+        return False
+
+    file_entries = [e for e in entries if e.get("type") == "file"]
+    if not file_entries:
+        _fail("No files found in the macOS unpatched-voice folder.")
+        return False
+
+    _info(f"Found {len(file_entries)} file(s) to download")
+    failed: List[str] = []
+    for entry in file_entries:
+        name = entry.get("name", "")
+        if not name:
+            continue
+        url = entry.get("download_url") or f"{VOICE_BACKUP_RAW_BASE}/{name}"
+        dest = dest_dir / name
+        _info(f"  Downloading: {name} ({entry.get('size', '?')} bytes)")
+        try:
+            _http_download_file(url, dest)
+            if not dest.is_file():
+                raise RuntimeError("file was not created")
+            size = dest.stat().st_size
+            if size == 0:
+                raise RuntimeError("downloaded file is empty")
+            # Sanity-check the .node / .dylib: anything <1 KB is suspicious.
+            ext = dest.suffix.lower()
+            if ext in (".node", ".dylib") and size < 1024:
+                _warn(f"  {name} seems too small ({size} bytes)")
+        except Exception as e:
+            _warn(f"  Failed to download {name}: {human_exc(e)}")
+            failed.append(name)
+
+    # Enforce that all required files are present.
+    missing = [n for n in VOICE_MODULE_REQUIRED_FILES if not (dest_dir / n).is_file()]
+    if missing:
+        _fail(f"Missing required module files after download: {', '.join(missing)}")
+        return False
+    if failed:
+        _warn(f"{len(failed)} file(s) failed to download (see log above)")
+    _ok(f"Downloaded {len(file_entries) - len(failed)}/{len(file_entries)} voice backup files")
+    return True
+
+
+def prepare_voice_backup(log: Optional[LogSink] = None) -> Optional[Path]:
+    """Download + verify the macOS unpatched voice module.
+
+    Mirrors `Get-PreparedVoiceBackupPath` in the Windows patcher. Returns the
+    backup directory on success, or None on failure.
+    """
+    backup_dir = _voice_backup_cache_dir()
+    if not download_voice_backup_files(backup_dir, log):
+        if log is not None:
+            log.fail("Failed to download voice backup files")
+        return None
+
+    node_path = backup_dir / "discord_voice.node"
+    if not node_path.is_file():
+        if log is not None:
+            log.fail(f"discord_voice.node was not found in voice backup folder: {backup_dir}")
+        return None
+
+    try:
+        size = node_path.stat().st_size
+        digest = sha256_file(node_path)
+        if log is not None:
+            log.info(
+                f"Voice node downloaded: {size / (1024 * 1024):.2f} MB | SHA-256={digest}"
+            )
+        expected_size = PATCHES_META.get("file_size")
+        if expected_size and size != expected_size:
+            if log is not None:
+                log.warn(
+                    f"Downloaded node size ({size}) does not match PATCHES_META.file_size ({expected_size})"
+                )
+        expected_hash = str(PATCHES_META.get("sha256") or "").lower()
+        if expected_hash and digest.lower() != expected_hash:
+            if log is not None:
+                log.fail("Downloaded discord_voice.node SHA-256 does NOT match PATCHES_META.sha256.")
+                log.fail(f"  downloaded: {digest}")
+                log.fail(f"  expected:   {expected_hash}")
+                log.fail(
+                    "  Either the GitHub folder published a different stock build, or "
+                    "PATCHES_META needs to be recomputed. Refusing to install."
+                )
+            return None
+    except Exception as e:
+        if log is not None:
+            log.warn(f"Could not verify downloaded voice node: {human_exc(e)}")
+        # Soft-fail: keep going if size/hash check threw (matches Windows behavior).
+
+    return backup_dir
+
+
+def get_voice_module_paths(node: Path) -> dict:
+    """Resolve the discord_voice module folder layout for a node path.
+
+    macOS layouts observed in the wild:
+      ~/Library/Application Support/discord/<app-version>/modules/
+        discord_voice-<ver>/discord_voice.node                 (flat)
+        discord_voice-<ver>/discord_voice/discord_voice.node   (nested)
+
+    Returns a dict with:
+      modules_root       : .../modules
+      voice_module_root  : .../discord_voice-<ver>
+      voice_folder       : the folder that directly contains discord_voice.node
+      voice_node         : the node path itself
+    Returns {} if the layout can't be determined.
+    """
+    node = Path(node)
+    if not node.is_file():
+        return {}
+    voice_folder = node.parent
+    voice_module_root = voice_folder
+    # If the layout is nested (discord_voice-x/discord_voice/discord_voice.node),
+    # the parent of voice_folder is the versioned module dir.
+    if voice_folder.name == "discord_voice" and voice_folder.parent.name.startswith("discord_voice-"):
+        voice_module_root = voice_folder.parent
+    # Walk up to find the `modules` dir.
+    modules_root: Optional[Path] = None
+    for parent in voice_module_root.parents:
+        if parent.name == "modules":
+            modules_root = parent
+            break
+    return {
+        "modules_root": modules_root,
+        "voice_module_root": voice_module_root,
+        "voice_folder": voice_folder,
+        "voice_node": node,
+    }
+
+
+def _clear_directory_safe(path: Path) -> bool:
+    """Remove every entry inside `path` (but keep `path` itself)."""
+    if not path.is_dir():
+        return False
+    try:
+        for child in path.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                try:
+                    child.unlink()
+                except OSError:
+                    pass
+        return True
+    except Exception:
+        return False
+
+
+def install_voice_module(node: Path, backup_dir: Path, log: LogSink) -> bool:
+    """Replace the voice-module folder with the downloaded files.
+
+    Mirrors the Windows patcher's `Clear-DirectoryContentsSafe` + `Copy-Item`
+    sequence: clear the existing folder, copy every file from `backup_dir`
+    into it, then verify the new discord_voice.node is in place.
+
+    The caller is responsible for closing Discord and (after this call) for
+    patching + codesigning the freshly installed node.
+    """
+    paths = get_voice_module_paths(node)
+    if not paths:
+        log.fail(f"Could not resolve voice module layout for: {node}")
+        return False
+    voice_folder: Path = paths["voice_folder"]
+    voice_module_root: Optional[Path] = paths.get("voice_module_root")
+
+    # Snapshot the OLD module folder first — paranoid backup in case the
+    # install fails midway. We do NOT rely on this for restore (the canonical
+    # backup is `ensure_backup`), but it gives us a recovery path.
+    snapshot_dir = CACHE_DIR / f"VoiceModuleSnapshot_{int(time.time())}"
+    try:
+        if voice_folder.is_dir():
+            shutil.copytree(voice_folder, snapshot_dir, dirs_exist_ok=True)
+            log.info(f"Snapshot of old module folder: {_short_home_path(snapshot_dir)}")
+    except Exception as e:
+        log.warn(f"Could not snapshot old module folder: {human_exc(e)}")
+
+    log.info(f"Clearing existing voice module folder: {_short_home_path(voice_folder)}")
+    if not _clear_directory_safe(voice_folder):
+        # If we can't clear in place (rare), try removing the whole folder so
+        # copytree can recreate it. This is more aggressive but matches what
+        # the Windows patcher does with `Remove-Item -Recurse`.
+        try:
+            shutil.rmtree(voice_folder, ignore_errors=True)
+            safe_mkdir(voice_folder)
+        except Exception as e:
+            log.fail(f"Could not clear voice module folder: {human_exc(e)}")
+            return False
+
+    log.info(f"Installing downloaded voice module files into: {_short_home_path(voice_folder)}")
+    try:
+        for src in sorted(backup_dir.iterdir()):
+            if not src.is_file():
+                continue
+            dst = voice_folder / src.name
+            shutil.copy2(src, dst)
+            log.ok(f"  installed: {src.name} ({src.stat().st_size:,} bytes)")
+    except Exception as e:
+        log.fail(f"Failed to copy voice module files: {human_exc(e)}")
+        # Try to restore from snapshot
+        if snapshot_dir.is_dir():
+            log.warn("Attempting to restore from snapshot...")
+            try:
+                _clear_directory_safe(voice_folder)
+                for src in snapshot_dir.iterdir():
+                    if src.is_file():
+                        shutil.copy2(src, voice_folder / src.name)
+            except Exception:
+                pass
+        return False
+
+    # Verify install
+    new_node = voice_folder / "discord_voice.node"
+    if not new_node.is_file():
+        log.fail("discord_voice.node is missing after install — aborting")
+        return False
+
+    expected_size = PATCHES_META.get("file_size")
+    if expected_size and new_node.stat().st_size != expected_size:
+        log.warn(
+            f"Installed discord_voice.node size ({new_node.stat().st_size}) does not "
+            f"match expected ({expected_size})"
+        )
+
+    log.ok("Voice module files replaced successfully")
+    return True
 
 
 def format_node_status_line(node_path: str) -> str:
@@ -854,6 +1417,7 @@ def format_node_status_line(node_path: str) -> str:
         "patched": "Patched (stereo enabled)",
         "unknown": "Unknown version",
         "error": "Error reading file",
+        "mismatch": "Mismatch — unexpected bytes at one or more sites",
     }
     size_mb = node.stat().st_size / (1024 * 1024)
     return f"v{ver} | {labels.get(state, state)} | {size_mb:.2f} MB"
@@ -866,6 +1430,9 @@ def check_patch_status(node_path: str) -> str:
             return "unpatched"
         if state == "patched":
             return "patched"
+        if state.startswith("mismatch"):
+            # M2: surface mismatch as a first-class status.
+            return "mismatch"
         if state in ("not found", "error"):
             return "error"
         return "unknown"
@@ -876,7 +1443,9 @@ def check_patch_status(node_path: str) -> str:
 def list_backups() -> List[Tuple[str, str, str]]:
     """Return (path, date, size) tuples — matches reference list_backups shape."""
     result: List[Tuple[str, str, str]] = []
-    roots = [BACKUP_DIR, app_data_dir() / "backups"]
+    # M5: BACKUP_DIR is the canonical root; LEGACY_BACKUP_DIR catches backups
+    # made by older patcher versions that wrote to Caches/DiscordVoicePatcher/Backups.
+    roots = [BACKUP_DIR, LEGACY_BACKUP_DIR]
     seen = set()
     for root in roots:
         if not root.is_dir():
@@ -915,11 +1484,16 @@ def _patch_state(node: Path) -> str:
         if not patches:
             return "unknown"
         patched = sum(1 for p in patches if p.get("already_patched"))
-        if patched == len(patches):
+        mismatches = sum(1 for p in patches if p.get("mismatch"))
+        total = len(patches)
+        if mismatches > 0:
+            # M2: surface mismatched sites as a distinct state.
+            return f"mismatch ({mismatches}/{total} sites)"
+        if patched == total:
             return "patched"
         if patched == 0:
             return "unpatched"
-        return f"partial ({patched}/{len(patches)})"
+        return f"partial ({patched}/{total})"
     except Exception:
         return "unknown"
 
@@ -938,13 +1512,18 @@ def ensure_backup(node: Path, log: LogSink) -> Path:
     bd = backup_path_for(node)
     if bd.is_file():
         try:
-            cur_md5 = md5_file(node)
-            bak_md5 = md5_file(bd)
-            expected = str(PATCHES_META.get("md5") or "")
+            cur_hash = sha256_file(node)
+            bak_hash = sha256_file(bd)
+            # Fall back to the legacy "md5" key if a downstream tool hasn't migrated.
+            expected = str(PATCHES_META.get("sha256") or PATCHES_META.get("md5") or "")
             # If the backup is incorrect (eg. accidentally captured a patched node),
             # but the current node matches the expected stock build, refresh it.
-            if expected and cur_md5 == expected and bak_md5 != expected:
+            if expected and cur_hash == expected and bak_hash != expected:
                 shutil.copy2(node, bd)
+                try:
+                    os.chmod(bd, 0o600)
+                except OSError:
+                    pass
                 log.ok(f"Backup refreshed (matched stock): {_short_home_path(bd)}")
             else:
                 log.info(f"Backup already exists: {_short_home_path(bd)}")
@@ -953,6 +1532,11 @@ def ensure_backup(node: Path, log: LogSink) -> Path:
         return bd
     safe_mkdir(bd.parent)
     shutil.copy2(node, bd)
+    try:
+        # Minor: lock down backup file permissions.
+        os.chmod(bd, 0o600)
+    except OSError:
+        pass
     log.ok(f"Backup saved: {_short_home_path(bd)}")
     return bd
 
@@ -963,11 +1547,21 @@ def record_last_patch(node: Path) -> None:
     mp.write_text(json.dumps({"last_patch_utc": datetime.now(timezone.utc).isoformat()}, indent=2), encoding="utf-8")
 
 
-def patch_node_file(node_path: Path, *, write: bool = True) -> tuple[int, int, list[str]]:
+def patch_node_file(
+    node_path: Path, *, write: bool = True, out_data: Optional[list] = None
+) -> tuple[int, int, list[str]]:
+    """Apply all ARM64 patches to `node_path`.
+
+    If `out_data` is provided (a list), the in-memory patched bytearray is
+    appended to it so the caller can pass it to `codesign_node(fallback_data=...)`
+    or `_report_patch_coverage(data=...)` without re-reading the 50 MB file.
+    """
     data = bytearray(node_path.read_bytes())
     applied, skipped, names = apply_all_arm64_patches(data, arm64_only=True)
     if write and applied > 0:
         node_path.write_bytes(data)
+    if out_data is not None:
+        out_data.append(data)
     return applied, skipped, names
 
 
@@ -979,16 +1573,84 @@ def restore_node_file(node_path: Path, log: LogSink) -> bool:
         return False
     close_discord_for_node(node_path, log)
     shutil.copy2(bd, node_path)
+    try:
+        os.chmod(node_path, 0o644)
+    except OSError:
+        pass
     codesign_node(node_path, log)
     log.ok("Binary restored from backup")
     return True
 
 
+def verify_node_identity(node: Path, log: Optional[LogSink] = None) -> bool:
+    """M3: gate patching on file size + SHA-256 match against PATCHES_META.
+
+    Returns True if the node matches the expected stock build (or if the
+    expected values are missing — fail-open for size/hash only). Returns
+    False and logs a clear error otherwise.
+    """
+    if not node.is_file():
+        if log is not None:
+            log.fail(f"File not found: {node}")
+        return False
+    expected_size = PATCHES_META.get("file_size")
+    if expected_size:
+        actual_size = node.stat().st_size
+        if actual_size != expected_size:
+            if log is not None:
+                log.fail(
+                    f"Size mismatch: {node} is {actual_size} bytes, "
+                    f"expected {expected_size} (stock build)."
+                )
+            return False
+    expected_hash = str(PATCHES_META.get("sha256") or PATCHES_META.get("md5") or "")
+    if expected_hash:
+        actual_hash = sha256_file(node)
+        if actual_hash != expected_hash:
+            if log is not None:
+                log.fail(
+                    f"Hash mismatch: {node} SHA-256 = {actual_hash}, "
+                    f"expected {expected_hash}.\n"
+                    "  Either this is a different Discord build, or the SHA-256 in "
+                    "PATCHES_META needs to be recomputed for the current stock binary."
+                )
+            return False
+    return True
+
+
+def _print_cli_usage() -> None:
+    print(f"Usage: {Path(sys.argv[0]).name} [options] <path/to/discord_voice.node>")
+    print(f"       {Path(sys.argv[0]).name} --restore <path/to/discord_voice.node>")
+    print(f"       {Path(sys.argv[0]).name} --download-voice <path/to/discord_voice.node>")
+    print(f"       {Path(sys.argv[0]).name} --gui")
+    print("")
+    print("Options:")
+    print("  --restore <path>          Restore the binary from backup, then re-sign.")
+    print("  --download-voice <path>   Download the unpatched macOS voice module from")
+    print("                            GitHub and replace the module folder at <path>,")
+    print("                            then patch and re-sign. Use this when your local")
+    print("                            Discord build no longer matches the patcher offsets.")
+    print("  --gui, -g                 Launch the Tk GUI (default when no args are given).")
+    print("  --help                    Show this help and exit.")
+    print("  --version                 Print version and exit.")
+
+
 def run_cli(argv: list[str]) -> int:
-    if not argv:
-        print(f"Usage: {Path(sys.argv[0]).name} <path/to/discord_voice.node>", file=sys.stderr)
-        print(f"       {Path(sys.argv[0]).name} --restore <path/to/discord_voice.node>", file=sys.stderr)
-        return 1
+    # M11: everything except --gui/-g/no-args goes to CLI. Handle --help/--version.
+    if not argv or argv[0] in ("--help", "-h", "-?"):
+        _print_cli_usage()
+        return 0
+    if argv[0] in ("--version", "-V"):
+        print(f"{APP_NAME} v{APP_VERSION}")
+        return 0
+
+    force_download = False
+    if argv[0] == "--download-voice":
+        if len(argv) < 2:
+            print("Missing path for --download-voice", file=sys.stderr)
+            return 1
+        force_download = True
+        argv = argv[1:]  # consume the flag, treat the next arg as node path
 
     if argv[0] == "--restore":
         if len(argv) < 2:
@@ -1018,52 +1680,175 @@ def run_cli(argv: list[str]) -> int:
             print(f"FAIL: {msg}", file=sys.stderr)
 
     log = _CliLog()
-    try:
-        if argv[0] == "--restore":
+
+    if argv[0] == "--restore":
+        try:
             ok = restore_node_file(node_path, log)
             return 0 if ok else 1
+        except Exception as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 1
 
-        ensure_backup(node_path, log)
-        close_discord_for_node(node_path, log)
-    except RuntimeError as e:
-        print(f"FAIL: {e}", file=sys.stderr)
-        return 1
+    # --download-voice: forcibly download + install the matching unpatched
+    # voice module from GitHub before patching. This is the explicit
+    # counterpart to the implicit "offer to download" path triggered when
+    # verify_node_identity fails.
+    did_kill_discord = False
+    if force_download:
+        print("=== Voice Module Download & Install (forced) ===")
+        backup_dir = prepare_voice_backup(log)
+        if backup_dir is None:
+            print("Aborting: voice backup download/verify failed.", file=sys.stderr)
+            return 2
+        try:
+            close_discord_for_node(node_path, log)
+            did_kill_discord = True
+        except Exception as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 1
+        if not install_voice_module(node_path, backup_dir, log):
+            print("Aborting: voice module install failed.", file=sys.stderr)
+            return 1
+        if not verify_node_identity(node_path, log):
+            print(
+                "Aborting: freshly installed discord_voice.node still does not match "
+                "PATCHES_META.",
+                file=sys.stderr,
+            )
+            return 2
+        # Fall through to the normal patch flow.
 
-    applied, skipped, names = patch_node_file(node_path)
-    if applied == 0 and skipped == 0:
-        return 1
-    if applied > 0:
-        codesign_node(node_path, log)
-        enable_library_validation_bypass(log)
-        _report_patch_coverage(node_path, log, applied=applied)
-        print(f"  Applied {applied} ARM64 patches (stereo + bitrate + filters)")
-        for n in names:
-            if not n.endswith("(already)"):
-                print(f"    - {n}")
-    elif skipped > 0:
-        _report_patch_coverage(node_path, log, applied=0)
-        print(f"  ARM64 stereo patches already applied ({skipped} sites checked)")
-    relaunch_discord_for_node(node_path, log)
-    return 0
+    # M3: verify the binary matches the expected stock build before patching.
+    # If it doesn't (and --download-voice wasn't already used), offer to
+    # download + install the matching unpatched voice module from the GitHub
+    # release folder (mirrors the Windows patcher's
+    # `Get-PreparedVoiceBackupPath` + `Invoke-PatchClients` workflow).
+    if "did_kill_discord" not in locals():
+        did_kill_discord = False
+    if not verify_node_identity(node_path, log):
+        print(
+            "\nThis discord_voice.node does not match the build the patcher's "
+            "offsets target.\n"
+            "Discord may have auto-updated to a newer build. The patcher can "
+            "download the\nmatching UNPATCHED voice module from GitHub and "
+            "replace your current module folder.\nThis will DOWNGRADE your "
+            "Discord voice module to the version the patcher supports."
+        )
+        answer = input("\nDownload and install the matching voice module? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Aborted. No changes were made.", file=sys.stderr)
+            return 2
+
+        backup_dir = prepare_voice_backup(log)
+        if backup_dir is None:
+            print("Aborting: voice backup download/verify failed.", file=sys.stderr)
+            return 2
+
+        # Close Discord before we touch the module folder.
+        try:
+            close_discord_for_node(node_path, log)
+            did_kill_discord = True
+        except Exception as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 1
+
+        if not install_voice_module(node_path, backup_dir, log):
+            print("Aborting: voice module install failed.", file=sys.stderr)
+            return 1
+
+        # Re-verify the freshly installed node. The path is the same — the
+        # file inside that folder has been replaced.
+        if not verify_node_identity(node_path, log):
+            print(
+                "Aborting: freshly installed discord_voice.node STILL does not match "
+                "PATCHES_META. This should never happen — please report it.",
+                file=sys.stderr,
+            )
+            return 2
+
+    # Track whether we killed Discord so the finally block can relaunch it.
+    try:
+        try:
+            ensure_backup(node_path, log)
+            if is_discord_running_for_node(node_path) or is_file_in_use(node_path):
+                did_kill_discord = True
+            close_discord_for_node(node_path, log)
+        except RuntimeError as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 1
+
+        # M4: wrap the entire patch / codesign / bypass sequence so any failure
+        # is logged cleanly and we still relaunch Discord in finally.
+        try:
+            out_data: list = []
+            applied, skipped, names = patch_node_file(node_path, out_data=out_data)
+            patched_bytes = out_data[0] if out_data else None
+            if applied == 0 and skipped == 0:
+                return 1
+            if applied > 0:
+                codesign_node(node_path, log, fallback_data=patched_bytes)
+                enable_library_validation_bypass(node_path, log)
+                _report_patch_coverage(
+                    node_path, log, applied=applied, data=patched_bytes
+                )
+                print(f"  Applied {applied} ARM64 patches (stereo + bitrate + filters)")
+                for n in names:
+                    if not n.endswith("(already)") and not n.endswith("(mismatch)"):
+                        print(f"    - {n}")
+            elif skipped > 0:
+                _report_patch_coverage(node_path, log, applied=0)
+                print(f"  ARM64 stereo patches already applied ({skipped} sites checked)")
+            return 0
+        except Exception as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            return 1
+    finally:
+        # M4: always relaunch Discord if we killed it (or even if we didn't —
+        # `open -a Discord` is idempotent and brings the running app forward).
+        if did_kill_discord:
+            try:
+                relaunch_discord_for_node(node_path, log)
+            except Exception:
+                pass
 
 
-def _refresh_node_inode(node: Path) -> None:
-    """Avoid macOS caching the old code signature by inode."""
-    tmp = node.with_suffix(node.suffix + ".tmp_inode")
-    node.rename(tmp)
-    tmp.replace(node)
+def _refresh_node_inode(node: Path, fallback_data: Optional[bytes] = None) -> None:
+    """Replace the node with a fresh inode (defeats macOS code-signature cache).
+
+    Atomic on the same filesystem. On failure, restores the original bytes
+    from `fallback_data` (the in-memory patched bytearray) so the binary is
+    never left missing.
+    """
+    tmp = node.with_name(node.name + ".tmp_inode")
+    try:
+        shutil.copy2(node, tmp)
+        os.replace(tmp, node)  # atomic; gives node a new inode
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        if fallback_data is not None:
+            # Last resort: rewrite the original bytes so the binary still exists.
+            node.write_bytes(fallback_data)
+        raise
 
 
-def enable_library_validation_bypass(log: LogSink) -> bool:
-    """Allow Discord to dlopen our ad-hoc signed discord_voice.node on Apple Silicon."""
+def enable_library_validation_bypass(node: Path, log: LogSink) -> bool:
+    """Allow Discord to dlopen our ad-hoc signed discord_voice.node on Apple Silicon.
+
+    M1: the bundle is resolved from `node` (so PTB / Canary / Development get
+    the right app), not hardcoded to /Applications/Discord.app.
+    """
     if sys.platform != "darwin":
         return True
+    _key, _app_name, bundle = resolve_client_from_node(node)
     app_path = next(
-        (p for p in (Path("/Applications/Discord.app"), Path.home() / "Applications/Discord.app") if p.is_dir()),
+        (p for p in (Path("/Applications") / bundle, Path.home() / "Applications" / bundle) if p.is_dir()),
         None,
     )
     if app_path is None:
-        log.warn("Discord.app not found — skipping library-validation bypass")
+        log.warn(f"{bundle} not found — skipping library-validation bypass")
         return False
 
     frameworks = app_path / "Contents" / "Frameworks"
@@ -1143,9 +1928,9 @@ def enable_library_validation_bypass(log: LogSink) -> bool:
             check=False,
         )
         if sr.returncode == 0:
-            log.ok("Discord.app re-signed (library-validation bypass)")
+            log.ok(f"{app_path.name} re-signed (library-validation bypass)")
         else:
-            log.warn(f"Discord.app re-sign failed — {sr.stderr.strip() or sr.stdout.strip()}")
+            log.warn(f"{app_path.name} re-sign failed — {sr.stderr.strip() or sr.stdout.strip()}")
             all_ok = False
 
     if all_ok:
@@ -1153,11 +1938,17 @@ def enable_library_validation_bypass(log: LogSink) -> bool:
     return all_ok
 
 
-def codesign_node(node: Path, log: LogSink) -> None:
+def codesign_node(node: Path, log: LogSink, *, fallback_data: Optional[bytes] = None) -> None:
+    """Ad-hoc codesign the node.
+
+    `fallback_data` is the in-memory patched bytearray from `patch_node_file`.
+    If the inode refresh fails midway, _refresh_node_inode uses it to restore
+    the binary so the user is never left with a missing discord_voice.node.
+    """
     if sys.platform != "darwin":
         return
     try:
-        _refresh_node_inode(node)
+        _refresh_node_inode(node, fallback_data=fallback_data)
         subprocess.run(["codesign", "--remove-signature", str(node)], capture_output=True, text=True, check=False)
         r = subprocess.run(
             ["codesign", "--force", "--sign", "-", str(node)],
@@ -1178,18 +1969,35 @@ def codesign_node(node: Path, log: LogSink) -> None:
                 log.warn(f"codesign verify failed: {(vr.stderr or vr.stdout or '').strip()}")
         else:
             err = (r.stderr or r.stdout or "").strip()
-            log.warn(f"codesign failed: {err or 'unknown error'}")
+            # CRITICAL FIX 2: a failed codesign leaves the binary unusable.
+            # This is a hard failure, not a warning.
+            log.fail(f"codesign failed: {err or 'unknown error'}")
+            raise RuntimeError(f"codesign failed: {err or 'unknown error'}")
+    except RuntimeError:
+        # Re-raise the codesign failure so callers can abort cleanly.
+        raise
     except Exception as e:
-        log.warn(f"codesign skipped: {human_exc(e)}")
+        # CRITICAL FIX 2: surface unexpected errors as failures, not silent warns.
+        log.fail(f"codesign error: {human_exc(e)}")
+        raise
 
 
-def _report_patch_coverage(node: Path, log: LogSink, *, applied: int) -> None:
-    data = node.read_bytes()
+def _report_patch_coverage(
+    node: Path, log: LogSink, *, applied: int, data: Optional[bytes] = None
+) -> None:
+    # M6: accept the in-memory patched `data` so we don't re-read the 50 MB file
+    # on every call. Only the immediate post-patch call passes it; other call
+    # sites that don't have the bytearray handy fall back to re-reading.
+    if data is None:
+        data = node.read_bytes()
     missing = missing_arm64_stereo_patch_names(data)
     found = [p for p in find_macos_stereo_patches(data) if p.get("arch") == "arm64"]
     patched_n = sum(1 for p in found if p.get("already_patched"))
+    mismatch_n = sum(1 for p in found if p.get("mismatch"))
     log.info("")
     log.info(f"Coverage: {patched_n}/{len(ARM64_STEREO_SPEC_NAMES)} spec sites present on disk")
+    if mismatch_n:
+        log.warn(f"Mismatch at {mismatch_n} site(s) — unexpected bytes (not orig, not patched).")
     if missing:
         log.warn(f"Missing {len(missing)} patch site(s) — stereo may not work until these are found:")
         for name in missing:
@@ -1314,14 +2122,44 @@ class PatcherApp:
         self.root.configure(bg=COLORS["bg_dark"])
 
         self.discord_installations: List[Tuple[str, str]] = []
+        # M9: display string -> absolute path. Avoids splitting the dropdown
+        # value on " — " (which breaks if the user's home dir contains that
+        # em-dash sequence).
+        self._node_path_by_display: dict = {}
         self.selected_node = tk.StringVar(value="")
         self.is_running = False
+
+        # M7: log file writer thread. Decouples disk I/O from the Tk main
+        # thread so appending to the log never blocks UI redraws.
+        self._log_queue: "queue.Queue[Optional[str]]" = queue.Queue()
+        self._log_writer_thread = threading.Thread(
+            target=self._log_writer_loop, name="PatcherLogWriter", daemon=True
+        )
+        self._log_writer_thread.start()
 
         self._build_ui()
         self.root.bind("<Map>", lambda _e: self.root.after_idle(self._repaint_rounded))
         self.root.after(50, self._repaint_rounded)
         self.root.after(200, self._repaint_rounded)
         self._scan_installations()
+
+    def _log_writer_loop(self) -> None:
+        """Drain self._log_queue and append each line to disk.
+
+        Runs on a daemon thread so it never blocks Tk's main loop. A `None`
+        sentinel signals shutdown.
+        """
+        while True:
+            msg = self._log_queue.get()
+            if msg is None:
+                break
+            try:
+                with log_path().open("a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+            except Exception:
+                pass
+            finally:
+                self._log_queue.task_done()
 
     def _repaint_rounded(self) -> None:
         self.root.update_idletasks()
@@ -1535,13 +2373,12 @@ class PatcherApp:
                 self.log_text.insert(tk.END, message + "\n")
             self.log_text.see(tk.END)
             self.log_text.configure(state=tk.DISABLED)
-            try:
-                with log_path().open("a", encoding="utf-8") as f:
-                    f.write(message + "\n")
-            except Exception:
-                pass
 
+        # Tk Text widget calls MUST happen on the main thread.
         self.root.after(0, _append)
+        # M7: file-append I/O goes to the daemon writer thread via the queue,
+        # so the Tk main loop never blocks on disk.
+        self._log_queue.put(message)
 
     def _set_progress(self, current: int, total: int, label: str = "") -> None:
         pct = (current / total) * 100 if total > 0 else 0
@@ -1571,10 +2408,9 @@ class PatcherApp:
                     parent=self.root,
                 )
             return None
-        if " — " in val:
-            path = val.split(" — ", 1)[1]
-        else:
-            path = val
+        # M9: dict lookup instead of splitting on " — " (which broke when the
+        # user's home directory contained that em-dash sequence).
+        path = self._node_path_by_display.get(val, val)
         if not os.path.isfile(path):
             if not silent:
                 messagebox.showerror("File Not Found", f"Cannot find:\n{path}", parent=self.root)
@@ -1584,6 +2420,10 @@ class PatcherApp:
     def _scan_installations(self) -> None:
         self.discord_installations = discover_discord_installations()
         values = [f"{name} — {path}" for name, path in self.discord_installations]
+        # M9: keep the display->path mapping in sync with the dropdown values.
+        self._node_path_by_display = {
+            f"{name} — {path}": path for name, path in self.discord_installations
+        }
         self.install_picker.set_values(values)
         if values:
             self.selected_node.set(values[0])
@@ -1600,8 +2440,8 @@ class PatcherApp:
             self._update_status("No installation selected")
 
     def _open_backups_folder(self) -> None:
+        # M5: BACKUP_DIR is the canonical root (app_data_dir() / "backups").
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        app_data_dir().joinpath("backups").mkdir(parents=True, exist_ok=True)
         path = str(BACKUP_DIR)
         try:
             if sys.platform == "darwin":
@@ -1627,6 +2467,78 @@ class PatcherApp:
         if not node_path:
             return
 
+        # M3: verify the binary's identity (size + SHA-256) BEFORE starting the
+        # worker thread. If it doesn't match, offer to download + install the
+        # matching unpatched voice module from GitHub (mirrors the Windows
+        # patcher's Save-VoiceBackupFiles + Invoke-PatchClients workflow).
+        try:
+            if not verify_node_identity(Path(node_path), GuiLog(self)):
+                choice = messagebox.askyesno(
+                    "Identity Check Failed",
+                    "This discord_voice.node does not match the expected stock build\n"
+                    "(file size or SHA-256 mismatch).\n\n"
+                    "Discord may have auto-updated to a newer build.\n\n"
+                    "Download the matching UNPATCHED voice module from GitHub and\n"
+                    "REPLACE your current module folder? This will DOWNGRADE your\n"
+                    "Discord voice module to the version the patcher supports.",
+                    parent=self.root,
+                )
+                if not choice:
+                    self._log("Patching aborted — identity check failed and user declined download.")
+                    return
+                # Run the download + install workflow on a worker thread so the
+                # UI stays responsive (the download is ~85 MB total).
+                self._clear_log()
+                self._set_buttons_state(False)
+                self._log("=== Voice Module Download & Install ===", "header")
+                self._log("")
+
+                def _do_download_and_install() -> None:
+                    try:
+                        log = GuiLog(self)
+                        backup_dir = prepare_voice_backup(log)
+                        if backup_dir is None:
+                            self._log("\n  [FAIL] Voice backup download/verify failed.", "error")
+                            self.root.after(0, lambda: self.progress_label.configure(text="Download failed"))
+                            return
+                        self._log("Closing Discord...")
+                        try:
+                            close_discord_for_node(Path(node_path), log)
+                        except Exception as e:
+                            self._log(f"\n  [FAIL] {e}", "error")
+                            return
+                        if not install_voice_module(Path(node_path), backup_dir, log):
+                            self._log("\n  [FAIL] Voice module install failed.", "error")
+                            self.root.after(0, lambda: self.progress_label.configure(text="Install failed"))
+                            return
+                        # Re-verify identity
+                        if not verify_node_identity(Path(node_path), log):
+                            self._log(
+                                "\n  [FAIL] Installed node still does not match PATCHES_META.",
+                                "error",
+                            )
+                            return
+                        self._log("")
+                        self._log("  [OK] Voice module installed successfully", "ok")
+                        self._log("")
+                        # Re-launch the normal patch flow on the main thread.
+                        self.root.after(0, lambda: self._start_patch())
+                    except Exception as e:
+                        self._log(f"\n  [FAIL] Error: {e}", "error")
+                        self.root.after(0, lambda: self.progress_label.configure(text="Error"))
+                    finally:
+                        self._set_buttons_state(True)
+
+                threading.Thread(target=_do_download_and_install, daemon=True).start()
+                return
+        except Exception as e:
+            messagebox.showerror(
+                "Identity Check Error",
+                f"Could not verify the binary:\n{e}",
+                parent=self.root,
+            )
+            return
+
         try:
             status = check_patch_status(node_path)
         except Exception:
@@ -1643,6 +2555,15 @@ class PatcherApp:
             if not messagebox.askyesno(
                 "Unknown Version",
                 "This binary version could not be verified.\nOffsets may not match. Continue anyway?",
+                parent=self.root,
+            ):
+                return
+        elif status == "mismatch":
+            if not messagebox.askyesno(
+                "Mismatch Detected",
+                "One or more patch sites have unexpected bytes (not original,\n"
+                "not patched). Re-applying may overwrite unknown data.\n\n"
+                "Continue anyway?",
                 parent=self.root,
             ):
                 return
@@ -1681,9 +2602,11 @@ class PatcherApp:
                 if applied > 0:
                     _write_node_bytes(node, data, log)
                     record_last_patch(node)
-                    codesign_node(node, log)
-                    enable_library_validation_bypass(log)
-                    _report_patch_coverage(node, log, applied=applied)
+                    # CRITICAL FIX 2 + M1 + M6: pass fallback_data + node + data
+                    # so codesign can recover and coverage doesn't re-read.
+                    codesign_node(node, log, fallback_data=bytes(data))
+                    enable_library_validation_bypass(node, log)
+                    _report_patch_coverage(node, log, applied=applied, data=bytes(data))
                 else:
                     log.ok(f"Already patched ({skipped} site(s) verified)")
                     _report_patch_coverage(node, log, applied=0)
@@ -1694,7 +2617,7 @@ class PatcherApp:
                 if applied > 0:
                     self._log(f"  [OK] Applied {applied} ARM64 patch(es) (stereo + bitrate + filters)!")
                     for n in names:
-                        if not n.endswith("(already)"):
+                        if not n.endswith("(already)") and not n.endswith("(mismatch)"):
                             self._log(f"    - {n}")
                     self._log("")
                     self._log("Next steps:")
@@ -1916,17 +2839,16 @@ def run_gui() -> int:
 
 
 def _want_gui() -> bool:
+    """M11: ONLY --gui / -g (and no args) trigger GUI mode.
+
+    Everything else — including --help, --version, typos like `--secret`, and
+    positional node paths — goes to CLI. The previous implementation routed
+    any unknown flag to GUI mode, which made --help open a Tk window.
+    """
     if len(sys.argv) < 2:
         return True
     arg = sys.argv[1]
-    if arg in ("--gui", "-g", "/gui"):
-        return True
-    if arg.startswith("-"):
-        # CLI flags (do not force GUI)
-        if arg in ("--restore",):
-            return False
-        return True
-    return False
+    return arg in ("--gui", "-g", "/gui")
 
 
 def main() -> int:
