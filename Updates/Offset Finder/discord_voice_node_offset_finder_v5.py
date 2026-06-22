@@ -1625,10 +1625,24 @@ def detect_binary_format(data):
         pe['func_symbols'] = {}
         pe['symbols'] = []
         return pe
-    raise ValueError(
-        "Unsupported binary format (Windows PE required). "
-        "This offset finder supports discord_voice.node from Windows Discord only."
-    )
+    macho = parse_macho(data)
+    if macho:
+        return macho
+    elf = parse_elf(data)
+    if elf:
+        return elf
+    return {
+        'format': 'raw',
+        'image_base': 0,
+        'file_offset_adjustment': 0,
+        'text_section': None,
+        'sections': [],
+        'arch': 'unknown',
+        'has_symbols': False,
+        'func_symbols': {},
+        'symbols': [],
+        'note': 'Could not detect binary format. Using raw scan with adjustment=0.',
+    }
 
 
 def _linux_scan_within_function(data, func_start, func_size, scan_type, adj):
@@ -4395,8 +4409,10 @@ def _discord_app_version_matching_install(file_path, data):
                     "DiscordDevelopment",
                 )
             )
-    else:
-        return None
+    elif sys.platform == "darwin":
+        sup = Path.home() / "Library" / "Application Support"
+        for c in ("discord", "discordcanary", "discordptb", "discorddevelopment"):
+            roots.append(sup / c)
 
     best = None
     for root in roots:
@@ -5026,6 +5042,89 @@ def find_discord_node():
                 if found:
                     return found
 
+    elif sys.platform == 'darwin':
+        home = Path.home()
+
+        for app_name in ['Discord', 'Discord Canary', 'Discord PTB', 'Discord Development']:
+            app_path = Path(f'/Applications/{app_name}.app/Contents/Resources')
+            if app_path.exists():
+                found = _search_modules_dirs(app_path)
+                if found:
+                    return found
+                found = _search_recursive(app_path.parent / 'Frameworks', max_depth=6)
+                if found:
+                    return found
+
+        app_support = home / 'Library' / 'Application Support'
+        for client in clients:
+            found = _search_modules_dirs(app_support / client)
+            if found:
+                return found
+
+        for cask_dir in [Path('/usr/local/Caskroom'), Path('/opt/homebrew/Caskroom')]:
+            if cask_dir.exists():
+                for d in cask_dir.glob('discord*'):
+                    found = _search_recursive(d, max_depth=8)
+                    if found:
+                        return found
+
+        print("  Typical macOS locations:")
+        print("    /Applications/Discord.app/Contents/Resources/app-*/modules/discord_voice*/")
+        print("    ~/Library/Application Support/discord/*/modules/discord_voice*/")
+
+    else:
+        home = Path.home()
+
+        config_dir = home / '.config'
+        for client in clients:
+            found = _search_modules_dirs(config_dir / client)
+            if found:
+                return found
+
+        flatpak_base = home / '.var' / 'app'
+        for flatpak_id in ['com.discordapp.Discord', 'com.discordapp.DiscordCanary']:
+            flatpak = flatpak_base / flatpak_id
+            if flatpak.exists():
+                for sub in ['config/discord', 'config/discordcanary', '.config/discord', '.config/discordcanary']:
+                    found = _search_modules_dirs(flatpak / sub)
+                    if found:
+                        return found
+                found = _search_recursive(flatpak, max_depth=8)
+                if found:
+                    return found
+
+        for snap_base in [Path('/snap'), home / 'snap']:
+            for client in ['discord', 'discord-canary']:
+                snap_dir = snap_base / client
+                if snap_dir.exists():
+                    found = _search_recursive(snap_dir, max_depth=8)
+                    if found:
+                        return found
+
+        for sys_base in ['/opt', '/usr/share', '/usr/lib']:
+            for pattern in ['discord*', 'Discord*']:
+                for d in Path(sys_base).glob(pattern):
+                    if d.is_dir():
+                        found = _search_recursive(d, max_depth=6)
+                        if found:
+                            return found
+
+        for d in home.glob('.discord*'):
+            found = _search_recursive(d, max_depth=6)
+            if found:
+                return found
+
+        for d in Path('/tmp').glob('.mount_Discord*'):
+            found = _search_recursive(d, max_depth=6)
+            if found:
+                return found
+
+        print("  Typical Linux locations:")
+        print("    ~/.config/discord/*/modules/discord_voice*/")
+        print("    ~/.var/app/com.discordapp.Discord/config/discord/*/modules/discord_voice*/  (Flatpak)")
+        print("    /snap/discord/current/usr/share/discord/modules/discord_voice*/  (Snap)")
+        print("    /opt/discord/modules/discord_voice*/  (deb/rpm)")
+
     return None
 
 
@@ -5074,7 +5173,7 @@ def main():
     if not quiet:
         print("=" * 65)
         print(f"  Discord Voice Node Offset Finder v{VERSION}")
-        print("  Windows PE scanning with tiered derivation")
+        print("  Cross-platform tiered scanning with chain-aware derivation")
         print("=" * 65)
 
     if file_arg:
@@ -5099,11 +5198,7 @@ def main():
         print(f"  Size: {file_size:,} bytes ({file_size / (1024*1024):.2f} MB)")
         print(f"  MD5:  {hashlib.md5(data).hexdigest()}")
 
-    try:
-        bin_info = detect_binary_format(data)
-    except ValueError as e:
-        print(f"\nERROR: {e}")
-        sys.exit(1)
+    bin_info = detect_binary_format(data)
     fmt = bin_info.get('format', 'raw')
     adj = bin_info.get('file_offset_adjustment', 0)
     arch = bin_info.get('arch', 'unknown')

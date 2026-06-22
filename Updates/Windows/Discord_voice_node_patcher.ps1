@@ -796,8 +796,10 @@ function Copy-LocalRepoBundleTo {
     return $true
 }
 
+
 function Save-VoiceBackupFiles {
     param([string]$DestinationPath)
+
     $localSrc = Get-LocalRepoBundleDir -RelativePath $Script:Config.LocalUnpatchedBundleRel
     if ($localSrc) {
         if (Test-Path $DestinationPath) {
