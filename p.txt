@@ -1,0 +1,215 @@
+=================================================================
+  Discord Voice Node Offset Finder v5.1.2
+  Cross-platform tiered scanning with chain-aware derivation
+=================================================================
+
+No file specified, searching for Discord install...
+  Found: C:\Users\o9\AppData\Local\Discord\app-1.0.9242\modules\discord_voice-1\discord_voice\discord_voice.node
+
+  File: C:\Users\o9\AppData\Local\Discord\app-1.0.9242\modules\discord_voice-1\discord_voice\discord_voice.node
+  Size: 14,780,344 bytes (14.10 MB)
+  MD5:  2ebb4c455b396827903fe3cf352a8acd
+
+  Binary Format:       PE
+  Architecture:        x86_64
+  PE Image Base:       0x180000000
+  PE Timestamp:        2026-06-15 16:15:31 UTC
+  Offset Adjustment:   0xC00  (.text VA 0x1000 - raw 0x400)
+    .text     VA=0x00001000  Size=0x00BFE800  Raw=0x00000400
+    .rdata    VA=0x00C00000  Size=0x001A7000  Raw=0x00BFEC00
+    .data     VA=0x00DA7000  Size=0x00026200  Raw=0x00DA5C00
+    .pdata    VA=0x00E56000  Size=0x0003E800  Raw=0x00DCBE00
+    .fptable  VA=0x00E95000  Size=0x00000200  Raw=0x00E0A600
+    .rodata   VA=0x00E96000  Size=0x00000A00  Raw=0x00E0A800
+    .tls      VA=0x00E97000  Size=0x00000400  Raw=0x00E0B200
+    _RDATA    VA=0x00E98000  Size=0x00000200  Raw=0x00E0B600
+    malloc_h  VA=0x00E99000  Size=0x00000200  Raw=0x00E0B800
+    .reloc    VA=0x00E9A000  Size=0x0000A400  Raw=0x00E0BA00
+
+=================================================================
+  PHASE 1: Signature Scanning (primary + relaxed)
+=================================================================
+  [FILTER] EmulateStereoSuccess1 @ 0x58F7C5 has no nearby stereo setter (accepting anyway)
+  [info] signature match at offset 0x58F7CB
+  [OK  ] EmulateStereoSuccess1                         = 0x5903CB  (file 0x58F7CB)  [primary] (conf=115)
+  [info] signature match at offset 0x3DCFA4
+  [OK  ] AudioEncoderOpusConfigSetChannels             = 0x3DDBA4  (file 0x3DCFA4)  [primary] (conf=115)
+  [info] signature match at offset 0xDED56
+  [OK  ] MonoDownmixer                                 = 0xDF956  (file 0xDED56)  [primary] (conf=115)
+  [info] signature match at offset 0x591A51
+  [OK  ] SetsBitrateBitrateValue                       = 0x592651  (file 0x591A51)  [primary] (conf=100)
+  [info] signature match at offset 0x2F52B0
+  [OK  ] ThrowError                                    = 0x2F5EB0  (file 0x2F52B0)  [primary] (conf=115)
+  [info] signature match at offset 0x919C20
+  [OK  ] DownmixFunc                                   = 0x91A820  (file 0x919C20)  [primary] (conf=115)
+  [info] signature match at offset 0x130641
+  [OK  ] CreateAudioFrameStereo                        = 0x131241  (file 0x130641)  [primary] (conf=115)
+  [info] signature match at offset 0x91D8B0
+  [OK  ] HighpassCutoffFilter                          = 0x91E4B0  (file 0x91D8B0)  [primary] (conf=90)
+  [info] signature match at offset 0x3DC8B7
+  [OK  ] EncoderConfigInit2                            = 0x3DD4B7  (file 0x3DC8B7)  [primary] (conf=115)
+
+=================================================================
+  PHASE 2: Relative Offset Derivation (chain-aware)
+=================================================================
+  [ OK ] EmulateStereoSuccess2                         = 0x5903D7  (from EmulateStereoSuccess1 + 0xC)
+  [ OK ] Emulate48Khz                                  = 0x590533  (from EmulateStereoSuccess1 + 0x168)
+  [ OK ] EmulateBitrateModified                        = 0x59082A  (from EmulateStereoSuccess1 + 0x45F)
+  [ OK ] HighPassFilter                                = 0x59C640  (from EmulateStereoSuccess1 + 0xC275)
+  [ OK ] SetsBitrateBitwiseOr                          = 0x592659  (from SetsBitrateBitrateValue + 0x8)
+  [ OK ] AudioEncoderOpusConfigIsOk                    = 0x3DDE40  (from AudioEncoderOpusConfigSetChannels + 0x29C)
+  [ OK ] DcReject                                      = 0x91E690  (from HighpassCutoffFilter + 0x1E0)
+  [ OK ] EncoderConfigInit1                            = 0x3DDBAE  (from AudioEncoderOpusConfigSetChannels + 0xA)
+
+=================================================================
+  PHASE 2b: Heuristic Recovery
+=================================================================
+  No heuristic candidates for: AudioEncoderMultiChannelOpusCh
+  [CONTEXT FINGERPRINT] EmulateStereoSuccess1 @ 0x5903CB  sha1:1f4a41f5eb4895da...
+  [CONTEXT FINGERPRINT] AudioEncoderOpusConfigSetChannels @ 0x3DDBA4  sha1:7b7ae18e41ff3f46...
+  [CONTEXT FINGERPRINT] MonoDownmixer @ 0xDF956  sha1:648b9dd7703b1ca7...
+  [CONTEXT FINGERPRINT] SetsBitrateBitrateValue @ 0x592651  sha1:e5298377ee2d90ea...
+  [CONTEXT FINGERPRINT] CreateAudioFrameStereo @ 0x131241  sha1:71facb77d91a3475...
+
+=================================================================
+  PHASE 3: Byte Verification
+=================================================================
+  [PASS] MonoDownmixer                                 original bytes: 84 c0
+  [INFO] CreateAudioFrameStereo                        bytes: 4c 0f 43 e8 (no fixed expected)
+  [PASS] ThrowError                                    original bytes: 41
+  [PASS] EncoderConfigInit2                            original bytes: 00 7d 00 00
+  [PASS] AudioEncoderOpusConfigSetChannels             original bytes: 01
+  [PASS] EncoderConfigInit1                            original bytes: 00 7d 00 00
+  [PASS] AudioEncoderOpusConfigIsOk                    original bytes: 8b 11 31 c0
+  [PASS] EmulateStereoSuccess1                         original bytes: 01
+  [PASS] EmulateStereoSuccess2                         original bytes: 75
+  [PASS] Emulate48Khz                                  original bytes: 0f 42 c1
+  [INFO] EmulateBitrateModified                        bytes: 00 7d 00 (no fixed expected)
+  [INFO] SetsBitrateBitrateValue                       bytes: 00 00 00 00 01 (no fixed expected)
+  [PASS] SetsBitrateBitwiseOr                          original bytes: 48 09 c1
+  [INFO] HighPassFilter                                bytes: 41 56 56 57 53 48 83 ec (no fixed expected)
+  [PASS] DownmixFunc                                   original bytes: 41
+  [INFO] HighpassCutoffFilter                          bytes: 56 48 83 ec 30 44 0f 29 (no fixed expected)
+  [INFO] DcReject                                      bytes: 48 83 ec 18 0f 29 34 24 (no fixed expected)
+
+=================================================================
+  PHASE 4: Injection Site Capacity
+=================================================================
+  [OK  ] HighpassCutoffFilter            available=468 (0x1D4)  needed=256 (0x100)  margin=+212 bytes
+  [OK  ] DcReject                        available=438 (0x1B6)  needed=438 (0x1B6)  margin=+0 bytes
+
+=================================================================
+  BITRATE AUDIT (PE .text)
+=================================================================
+  Known bitrate patch sites: 4
+  32000 (0x7D00):   3 covered, 47 uncovered
+    uncovered  file 0x130628  RVA 0x131228
+    uncovered  file 0x2F8010  RVA 0x2F8C10
+    uncovered  file 0x315418  RVA 0x316018
+    uncovered  file 0x31549E  RVA 0x31609E
+    uncovered  file 0x3DBA73  RVA 0x3DC673
+    uncovered  file 0x3DBB14  RVA 0x3DC714
+    uncovered  file 0x3DD48A  RVA 0x3DE08A
+    uncovered  file 0x3DD56B  RVA 0x3DE16B
+    uncovered  file 0x3E0AE8  RVA 0x3E16E8
+    uncovered  file 0x3E0B14  RVA 0x3E1714
+    ... and 37 more
+  512000 (0x7D000): 0 covered, 3 uncovered
+    uncovered  file 0x4FAA3E  RVA 0x4FB63E
+    uncovered  file 0x5C31E9  RVA 0x5C3DE9
+    uncovered  file 0x93DE1F  RVA 0x93EA1F
+  [NEW DISCOVERY VERIFIED] potential EncoderConfigInit3 (uncovered 512000 literal) at RVA 0x4FB63E
+  If Discord still reports ~512/529 Kbps, add EncoderConfigInit3 in the patcher:
+  In Offsets set:  EncoderConfigInit3 = 0x4FB63E
+
+
+=================================================================
+  RESULTS SUMMARY
+=================================================================
+  Format:           PE (x86_64)
+  Windows patcher:   17 / 17  (required for Discord_voice_node_patcher.ps1)
+  x86_64 discovered: 17 offsets
+  Bytes verified:   17
+  Warnings:         0
+  Cross-validation: clean
+  Errors:           0
+  Resolution:       derived: 8, primary: 9
+
+=================================================================
+  COPY BELOW -> Discord_voice_node_patcher.ps1
+  Replace the entire # region Offsets (PASTE HERE) ... # endregion Offsets section
+=================================================================
+
+--- BEGIN COPY (Windows) ---
+# region Offsets (PASTE HERE)
+# Paste output from: python discord_voice_node_offset_finder_v5.py <path\to\discord_voice.node>
+# Required: exactly these 17 offsets (RVA hex). Copy the "COPY BELOW -> Discord_voice_node_patcher.ps1" block.
+
+$Script:OffsetsMeta = @{
+    FinderVersion = "discord_voice_node_offset_finder.py v5.1.2"
+    Build         = "Jun 15 2026"
+    Size          = 14780344
+    MD5           = "2ebb4c455b396827903fe3cf352a8acd"
+}
+
+$Script:Offsets = @{
+    CreateAudioFrameStereo            = 0x131241
+    AudioEncoderOpusConfigSetChannels = 0x3DDBA4
+    MonoDownmixer                     = 0xDF956
+    EmulateStereoSuccess1             = 0x5903CB
+    EmulateStereoSuccess2             = 0x5903D7
+    EmulateBitrateModified            = 0x59082A
+    SetsBitrateBitrateValue           = 0x592651
+    SetsBitrateBitwiseOr              = 0x592659
+    Emulate48Khz                      = 0x590533
+    HighPassFilter                    = 0x59C640
+    HighpassCutoffFilter              = 0x91E4B0
+    DcReject                          = 0x91E690
+    DownmixFunc                       = 0x91A820
+    AudioEncoderOpusConfigIsOk        = 0x3DDE40
+    ThrowError                        = 0x2F5EB0
+    EncoderConfigInit1                = 0x3DDBAE
+    EncoderConfigInit2                = 0x3DD4B7
+}
+
+# endregion Offsets
+--- END COPY ---
+
+  DEBUG MODE (matches patcher GUI groups)
+  ------------------------------------------------------------
+  [STEREO]
+    EmulateStereoSuccess1
+    EmulateStereoSuccess2
+    CreateAudioFrameStereo
+    AudioEncoderOpusConfigSetChannels
+    MonoDownmixer
+
+  [BITRATE]
+    EmulateBitrateModified
+    SetsBitrateBitrateValue
+    SetsBitrateBitwiseOr
+
+  [SAMPLERATE]
+    Emulate48Khz
+
+  [FILTER]
+    HighPassFilter
+    HighpassCutoffFilter
+    DcReject
+    DownmixFunc
+    AudioEncoderOpusConfigIsOk
+    ThrowError
+
+  [ENCODER]
+    EncoderConfigInit1
+    EncoderConfigInit2
+    AudioEncoderMultiChannelOpusCh
+
+
+  HighPassFilter stub: 48 b8 b0 e4 91 80 01 00 00 00 c3
+    mov rax, 0x18091E4B0; ret
+
+  Offset file saved: C:\Users\o9\Documents\Githubb\Discord-Stereo-Windows-MacOS-Linux\Update\Offset Finder\offsets.txt
+  JSON saved: C:\Users\o9\AppData\Local\Discord\app-1.0.9242\modules\discord_voice-1\discord_voice\discord_voice.offsets.json
+
+  *** ALL 17 WINDOWS PATCHER OFFSETS FOUND ***

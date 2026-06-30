@@ -1,0 +1,137 @@
+{
+  "tool": "discord_voice_node_offset_finder",
+  "version": "5.1.2",
+  "file": "C:/Users/o9/AppData/Local/DiscordCanary/app-1.0.1004/modules/discord_voice-3/discord_voice/discord_voice.node",
+  "file_size": 14752184,
+  "md5": "a51c736ea9f4c43d7e00acb2ce43a1df",
+  "format": "pe",
+  "arch": "x86_64",
+  "file_offset_adjustment": "0xc00",
+  "offsets": {
+    "CreateAudioFrameStereo": "0x12f7f1",
+    "DcReject": "0x91c8d0",
+    "DownmixFunc": "0x918a60",
+    "Emulate48Khz": "0x30c5a0",
+    "EmulateBitrateModified": "0x58eada",
+    "EmulateStereoSuccess1": "0x58e67b",
+    "EncoderConfigInit2": "0x3db7f7",
+    "HighPassFilter": "0x59a8f0",
+    "HighpassCutoffFilter": "0x91c6f0",
+    "MonoDownmixer": "0xe1286",
+    "SetsBitrateBitrateValue": "0x307a26",
+    "SetsBitrateBitwiseOr": "0x307a2e",
+    "ThrowError": "0x2f3ef0"
+  },
+  "resolution_tiers": {
+    "EmulateStereoSuccess1": "primary",
+    "SetsBitrateBitrateValue": "relaxed-1(ambig:4)",
+    "ThrowError": "primary",
+    "DownmixFunc": "primary",
+    "CreateAudioFrameStereo": "primary",
+    "EncoderConfigInit2": "primary",
+    "MonoDownmixer": "patched-fallback",
+    "HighpassCutoffFilter": "patched-stub-extract",
+    "EmulateBitrateModified": "derived(EmulateStereoSuccess1+0x45F)",
+    "SetsBitrateBitwiseOr": "derived(SetsBitrateBitrateValue+0x8)",
+    "DcReject": "derived(HighpassCutoffFilter+0x1E0)",
+    "Emulate48Khz": "heuristic(cmp ...,2 + cmov @file:0x30B993 [HEURISTIC USED])"
+  },
+  "total_found": 13,
+  "total_expected": 18,
+  "pe_timestamp": 1780940854,
+  "pe_build_time": "2026-06-08T17:47:34+00:00",
+  "image_base": "0x180000000",
+  "patches": [
+    {
+      "name": "CreateAudioFrameStereo",
+      "file_offset": 1240049,
+      "file_offset_hex": "0x12ebf1",
+      "expected_original": null,
+      "length": 4
+    },
+    {
+      "name": "MonoDownmixer",
+      "file_offset": 919174,
+      "file_offset_hex": "0xe0686",
+      "expected_original": "84C0",
+      "length": 2
+    },
+    {
+      "name": "EmulateStereoSuccess1",
+      "file_offset": 5823099,
+      "file_offset_hex": "0x58da7b",
+      "expected_original": "01",
+      "length": 1
+    },
+    {
+      "name": "EmulateBitrateModified",
+      "file_offset": 5824218,
+      "file_offset_hex": "0x58deda",
+      "expected_original": null,
+      "length": 3
+    },
+    {
+      "name": "SetsBitrateBitrateValue",
+      "file_offset": 3173926,
+      "file_offset_hex": "0x306e26",
+      "expected_original": null,
+      "length": 5
+    },
+    {
+      "name": "SetsBitrateBitwiseOr",
+      "file_offset": 3173934,
+      "file_offset_hex": "0x306e2e",
+      "expected_original": "4809C1",
+      "length": 3
+    },
+    {
+      "name": "Emulate48Khz",
+      "file_offset": 3193248,
+      "file_offset_hex": "0x30b9a0",
+      "expected_original": "0F42C1",
+      "length": 3
+    },
+    {
+      "name": "HighPassFilter",
+      "file_offset": 5872880,
+      "file_offset_hex": "0x599cf0",
+      "expected_original": null,
+      "length": 11
+    },
+    {
+      "name": "HighpassCutoffFilter",
+      "file_offset": 9550576,
+      "file_offset_hex": "0x91baf0",
+      "expected_original": null,
+      "length": 256
+    },
+    {
+      "name": "DcReject",
+      "file_offset": 9551056,
+      "file_offset_hex": "0x91bcd0",
+      "expected_original": null,
+      "length": 438
+    },
+    {
+      "name": "DownmixFunc",
+      "file_offset": 9535072,
+      "file_offset_hex": "0x917e60",
+      "expected_original": "41",
+      "length": 1
+    },
+    {
+      "name": "ThrowError",
+      "file_offset": 3093232,
+      "file_offset_hex": "0x2f32f0",
+      "expected_original": "41",
+      "length": 1
+    },
+    {
+      "name": "EncoderConfigInit2",
+      "file_offset": 4041719,
+      "file_offset_hex": "0x3dabf7",
+      "expected_original": "007D0000",
+      "length": 4
+    }
+  ]
+}
