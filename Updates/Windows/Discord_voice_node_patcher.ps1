@@ -358,6 +358,7 @@ $Script:DiscordClients = [ordered]@{
     6 = @{Name="Vencord                  [Mod]";      Path="$env:LOCALAPPDATA\Vencord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Vencord","Discord","Update");       Exe="Discord.exe"; Shortcut="Vencord";       DetectPath="$env:APPDATA\Vencord"}
     7 = @{Name="Equicord                 [Mod]";      Path="$env:LOCALAPPDATA\Equicord";           FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Equicord","Discord","Update");      Exe="Discord.exe"; Shortcut="Equicord";      DetectPath="$env:APPDATA\Equicord"}
     8 = @{Name="BetterVencord            [Mod]";      Path="$env:LOCALAPPDATA\BetterVencord";      FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("BetterVencord","Discord","Update"); Exe="Discord.exe"; Shortcut="BetterVencord"; DetectPath="$env:APPDATA\BetterVencord"}
+    9 = @{Name="Nightcord                [Mod]";      Path="$env:LOCALAPPDATA\Nightcord";           FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Nightcord","Discord","Update");    Exe="Discord.exe"; Shortcut="Nightcord";      DetectPath="$env:APPDATA\Nightcord"}
 }
 
 
@@ -1038,7 +1039,7 @@ function Stop-DiscordProcesses {
 }
 
 function Stop-AllDiscordProcesses {
-    $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Update")
+    $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Nightcord","Update")
     return Stop-DiscordProcesses $allProcs
 }
 
@@ -2075,7 +2076,7 @@ private:
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) return false;
         PROCESSENTRY32 entry = {sizeof(PROCESSENTRY32)};
-        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", NULL};
+        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", "Nightcord.exe", NULL};
         if (Process32First(snapshot, &entry)) {
             do {
                 for (const char** pn = processNames; *pn != NULL; pn++) {
@@ -2091,7 +2092,7 @@ private:
     }
 
     bool WaitForDiscordClose(int maxAttempts = 20) {
-        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", NULL};
+        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", "Nightcord.exe", NULL};
         for (int i = 0; i < maxAttempts; i++) {
             HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
             if (snapshot == INVALID_HANDLE_VALUE) return false;
