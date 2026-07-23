@@ -304,7 +304,7 @@ def _default_discord_roots() -> Tuple[Path, ...]:
                 os.path.join(la, "Vencord"),
                 os.path.join(la, "Equicord"),
                 os.path.join(la, "BetterVencord"),
-                os.path.join(la, "Nightcord"),
+                os.path.join(la, "Ghostcord"),
             )
             if p
         )
@@ -353,7 +353,7 @@ def quick_hub_client_prefix_for_badge(discord_root: Path) -> str:
     except Exception:
         leaf = ""
 
-    if leaf in ("discord", "vencord", "equicord", "bettervencord", "nightcord"):
+    if leaf in ("discord", "vencord", "equicord", "bettervencord", "ghostcord"):
         return "Stable"
 
     ch = infer_discord_release_channel_from_root(discord_root)
@@ -732,7 +732,7 @@ def stop_discord_processes(log: "Logger", *, target: Optional[Target] = None) ->
         "Vencord",
         "Equicord",
         "BetterVencord",
-        "Nightcord",
+        "Ghostcord",
         "Update",
     ]
     try:
