@@ -28,9 +28,9 @@ $Script:SCRIPT_VERSION = "19.0"
 
 $Script:OffsetsMeta = @{
     FinderVersion     = "discord_voice_node_offset_finder.py v5.12.0"
-    DiscordAppVersion = "1.0.1206"
+    DiscordAppVersion = "1.0.9247"
     Size              = 14843832
-    MD5               = "8338d457ac294bd4ebdf41741ae736bd"
+    MD5               = "4a1892dd006b9f854f5ce61d6fab940c"
 }
 
 $Script:Offsets = @{
@@ -358,7 +358,7 @@ $Script:DiscordClients = [ordered]@{
     6 = @{Name="Vencord                  [Mod]";      Path="$env:LOCALAPPDATA\Vencord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Vencord","Discord","Update");       Exe="Discord.exe"; Shortcut="Vencord";       DetectPath="$env:APPDATA\Vencord"}
     7 = @{Name="Equicord                 [Mod]";      Path="$env:LOCALAPPDATA\Equicord";           FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Equicord","Discord","Update");      Exe="Discord.exe"; Shortcut="Equicord";      DetectPath="$env:APPDATA\Equicord"}
     8 = @{Name="BetterVencord            [Mod]";      Path="$env:LOCALAPPDATA\BetterVencord";      FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("BetterVencord","Discord","Update"); Exe="Discord.exe"; Shortcut="BetterVencord"; DetectPath="$env:APPDATA\BetterVencord"}
-    9 = @{Name="Nightcord                [Mod]";      Path="$env:LOCALAPPDATA\Nightcord";           FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Nightcord","Discord","Update");    Exe="Discord.exe"; Shortcut="Nightcord";      DetectPath="$env:APPDATA\Nightcord"}
+    9 = @{Name="Ghostcord                [Mod]";      Path="$env:LOCALAPPDATA\Ghostcord";           FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Ghostcord","Discord","Update");    Exe="Discord.exe"; Shortcut="Ghostcord";      DetectPath="$env:APPDATA\Ghostcord"}
 }
 
 
@@ -1039,7 +1039,7 @@ function Stop-DiscordProcesses {
 }
 
 function Stop-AllDiscordProcesses {
-    $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Nightcord","Update")
+    $allProcs = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","BetterVencord","Equicord","Vencord","Ghostcord","Update")
     return Stop-DiscordProcesses $allProcs
 }
 
@@ -2076,7 +2076,7 @@ private:
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) return false;
         PROCESSENTRY32 entry = {sizeof(PROCESSENTRY32)};
-        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", "Nightcord.exe", NULL};
+        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", "Ghostcord.exe", NULL};
         if (Process32First(snapshot, &entry)) {
             do {
                 for (const char** pn = processNames; *pn != NULL; pn++) {
@@ -2092,7 +2092,7 @@ private:
     }
 
     bool WaitForDiscordClose(int maxAttempts = 20) {
-        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", "Nightcord.exe", NULL};
+        const char* processNames[] = {"Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe", "Lightcord.exe", "Ghostcord.exe", NULL};
         for (int i = 0; i < maxAttempts; i++) {
             HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
             if (snapshot == INVALID_HANDLE_VALUE) return false;
