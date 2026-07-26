@@ -36,7 +36,7 @@ $Fonts = @{
 
 $Script:AllDiscordProcessNames = @(
     "Discord", "DiscordCanary", "DiscordPTB", "DiscordDevelopment",
-    "Lightcord", "BetterVencord", "Equicord", "Vencord", "Ghostcord", "Update"
+    "Lightcord", "BetterVencord", "Equicord", "Vencord", "Nightcord", "Update"
 )
 
 $DiscordClients = [ordered]@{
@@ -49,7 +49,7 @@ $DiscordClients = [ordered]@{
     6 = @{Name="Vencord                  [Mod]";      Path="$env:LOCALAPPDATA\Vencord";            RoamingPath="$env:APPDATA\discord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Vencord","Discord","Update");       Exe="Discord.exe"; Shortcut="Vencord"}
     7 = @{Name="Equicord                 [Mod]";      Path="$env:LOCALAPPDATA\Equicord";           RoamingPath="$env:APPDATA\discord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Equicord","Discord","Update");      Exe="Discord.exe"; Shortcut="Equicord"}
     8 = @{Name="BetterVencord            [Mod]";      Path="$env:LOCALAPPDATA\BetterVencord";      RoamingPath="$env:APPDATA\discord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("BetterVencord","Discord","Update"); Exe="Discord.exe"; Shortcut="BetterVencord"}
-    9 = @{Name="Ghostcord                [Mod]";      Path="$env:LOCALAPPDATA\Ghostcord";           RoamingPath="$env:APPDATA\discord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Ghostcord","Discord","Update");    Exe="Discord.exe"; Shortcut="Ghostcord"}
+    9 = @{Name="Nightcord                [Mod]";      Path="$env:LOCALAPPDATA\Nightcord";           RoamingPath="$env:APPDATA\discord";            FallbackPath="$env:LOCALAPPDATA\Discord"; Processes=@("Nightcord","Discord","Update");    Exe="Discord.exe"; Shortcut="Nightcord"}
 }
 
 $UPDATE_URL = "https://raw.githubusercontent.com/o9ll/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/DiscordVoiceFixer.ps1"
@@ -316,9 +316,9 @@ function Update-Progress { param([System.Windows.Forms.ProgressBar]$ProgressBar,
 
 
 function Stop-DiscordProcesses { param([string[]]$ProcessNames)
-    $mainNames = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","Vencord","Equicord","BetterVencord","Ghostcord")
+    $mainNames = @("Discord","DiscordCanary","DiscordPTB","DiscordDevelopment","Lightcord","Vencord","Equicord","BetterVencord","Nightcord")
     $toKill = $ProcessNames | Where-Object { $_ -in $mainNames }
-    $discordPathRegex = "\\Discord|\\Lightcord|\\Vencord|\\Equicord|\\BetterVencord|\\Ghostcord"
+    $discordPathRegex = "\\Discord|\\Lightcord|\\Vencord|\\Equicord|\\BetterVencord|\\Nightcord"
 
     $getDiscordUpdatePids = {
         try {
